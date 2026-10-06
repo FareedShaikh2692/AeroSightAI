@@ -108,6 +108,7 @@ export function OrgSettingsForm({ s, brandColor, disabled }: { s: Record<string,
     ["missionApprovalRequired", "Require mission approval", "Missions must be approved by a project manager before they can be flown."],
     ["fourEyesProgress", "Four-eyes progress approval", "Progress records can't be approved by the person who recorded them."],
     ["externalSharing", "Allow external sharing", "Reports may be shared outside the organization."],
+    ["droneCommandsEnabled", "Allow drone flight commands", "Pilots can send pause, resume and return-to-home to drones whose adapter is verified for mission control."],
     ["aiEnabled", "Enable AI features", "AI progress analysis, narratives and assistant (Beta)."],
   ];
   return (

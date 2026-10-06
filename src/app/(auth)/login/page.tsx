@@ -10,8 +10,8 @@ import { db } from "@/lib/store";
 export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; staff?: string; mfa?: string }> }) {
-  const { next, mfa } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; staff?: string; mfa?: string; sso?: string; error?: string }> }) {
+  const { next, mfa, error } = await searchParams;
   const data = db();
   const personas = data.organizations.filter((o) => o.slug === "atlas" || o.slug === "borealis").map((o) => ({
     org: o,
@@ -25,6 +25,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <h1 className="mt-10 text-2xl font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-ink-2">New here? <Link href="/signup" className="text-accent hover:underline">Start a free trial</Link></p>
           <LoginForm next={next ?? ""} notice={mfa ? "This account has two-factor authentication enabled. Sign in with the password and your authenticator code." : undefined} />
+          <div className="my-6 flex items-center gap-3 text-xs text-ink-3"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>
+          <form action="/api/auth/sso/start" method="get" className="space-y-2">
+            {error && <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">{error.slice(0, 300)}</p>}
+            <input type="hidden" name="next" value={next ?? ""} />
+            <label className="label" htmlFor="sso-email">Work email</label>
+            <div className="flex gap-2"><input id="sso-email" name="email" type="email" required className="input" placeholder="you@company.com" autoComplete="email" />
+              <button className="btn btn-secondary shrink-0">Sign in with SSO</button></div>
+            <p className="text-[11px] text-ink-3">Okta, Microsoft Entra ID, Google Workspace or any OpenID Connect provider your administrator has connected.</p>
+          </form>
         </div>
       </div>
       <aside className="border-l border-line bg-surface/60 px-6 py-12 sm:px-12">

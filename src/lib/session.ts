@@ -54,3 +54,17 @@ export async function verifyMfaPending(token: string | undefined): Promise<{ sub
     return null;
   }
 }
+
+// Short-lived signed state for redirect flows (SSO login). Separate audience per purpose.
+export async function signFlowState(aud: string, data: Record<string, string>, ttlSeconds: number): Promise<string> {
+  return new SignJWT(data).setProtectedHeader({ alg: "HS256" }).setIssuer("aerosight").setAudience(aud).setIssuedAt().setExpirationTime(`${ttlSeconds}s`).sign(secret());
+}
+export async function verifyFlowState(aud: string, token: string | undefined): Promise<Record<string, string> | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret(), { issuer: "aerosight", audience: aud, algorithms: ["HS256"] });
+    return Object.fromEntries(Object.entries(payload).filter(([, v]) => typeof v === "string")) as Record<string, string>;
+  } catch {
+    return null;
+  }
+}

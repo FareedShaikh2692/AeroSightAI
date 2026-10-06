@@ -9,6 +9,7 @@ import { sha256 } from "@/lib/crypto";
 import { getContext, clientIp } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 import { z } from "zod";
+import { passwordLoginBlocked } from "@/lib/sso";
 
 export type FormState = { error?: string | null; email?: string; mfa?: boolean };
 
@@ -44,6 +45,7 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   if (!user) { dummyVerify(password); fail(`acct:${email}`); fail(`ip:${ip}`); return { error: GENERIC, email }; }
   if (!verifyPassword(password, user.passwordHash)) { fail(`acct:${email}`); fail(`ip:${ip}`); return { error: GENERIC, email }; }
   failures.delete(`acct:${email}`);
+  if (passwordLoginBlocked(email, user.id)) return { error: "Your organization requires single sign-on. Use “Sign in with SSO” below.", email };
   user.lastLoginAt = new Date().toISOString();
   if (user.isPlatformStaff) {
     await setSession(user.id, "", true);

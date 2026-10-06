@@ -183,6 +183,7 @@
 | `AI_MODEL` | Optional | Claude model ID (default `claude-opus-5-5`). |
 | `CRON_SECRET` 🔒 | ✓ for cron | Authenticates `/api/cron/daily` (Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`). The route refuses to run without it. |
 | `PUBLIC_APP_URL` | Optional | Base URL for links in Slack/Teams/webhook payloads. Defaults to the Vercel production URL. |
+| `DRONE_COMMANDS_DISABLED` | Optional | `1` or `true` = platform-wide kill switch: no flight command (pause/resume/RTH) is sent to any drone; missions fall back to record-only status changes. |
 
 ## 3. Per-Environment Differences
 

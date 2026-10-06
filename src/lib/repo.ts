@@ -184,8 +184,25 @@ function event(ctx: AuthContext, m: Mission, type: string, text: string) {
 
 const ACTION_PERM: Record<MissionAction, Permission> = {
   plan: "mission:update", submit: "mission:update", revise: "mission:update", markReady: "mission:update", cancel: "mission:update",
-  approve: "mission:approve", reject: "mission:approve", start: "mission:start", pause: "mission:start", resume: "mission:start", stop: "mission:start", abort: "mission:abort",
+  approve: "mission:approve", reject: "mission:approve", start: "mission:start", pause: "mission:start", resume: "mission:start", rth: "mission:start", stop: "mission:start", abort: "mission:abort",
 };
+
+/** Commands that are sent to the aircraft (not just logged) when the drone's adapter is verified for mission control. */
+const FLIGHT_COMMANDS: MissionAction[] = ["pause", "resume", "rth", "abort"];
+
+/** Platform-wide kill switch (ops runbook): DRONE_COMMANDS_DISABLED=1 stops every provider command. */
+export function droneCommandsKillSwitch() {
+  return process.env.DRONE_COMMANDS_DISABLED === "1" || process.env.DRONE_COMMANDS_DISABLED === "true";
+}
+
+/** How a flight command would be executed for this mission — shown in the UI before the pilot confirms. */
+export function commandChannel(ctx: AuthContext, m: Mission): { mode: "provider" | "logical"; reason: string } {
+  const d = db().drones.find((x) => x.id === m.droneId);
+  if (!d?.missionControlVerified) return { mode: "logical", reason: "This drone's adapter is not verified for mission control — status changes are recorded only; fly the aircraft from its own controller." };
+  if (droneCommandsKillSwitch()) return { mode: "logical", reason: "Drone commands are disabled platform-wide by AeroSight operations." };
+  if (currentOrg(ctx).settings.droneCommandsEnabled === false) return { mode: "logical", reason: "Drone commands are turned off in organization settings." };
+  return { mode: "provider", reason: `Commands are sent to ${d.name} through the ${d.providerKey} adapter.` };
+}
 
 export function transitionMission(ctx: AuthContext, id: UUID, action: MissionAction, opts: { reason?: string; confirmPilotInCommand?: boolean } = {}) {
   const m = getMission(ctx, id);
@@ -226,10 +243,38 @@ export function transitionMission(ctx: AuthContext, id: UUID, action: MissionAct
     } else m.abortReason = opts.reason;
   }
   if (action === "reject") m.rejectionReason = opts.reason;
+  let execution: { mode: "provider" | "logical"; providerCommandSent: boolean; reason?: string } | undefined;
+  if (FLIGHT_COMMANDS.includes(action) || action === "start") {
+    const channel = action === "start" ? { mode: "logical" as const, reason: "Take-off is always performed by the pilot in command." } : commandChannel(ctx, m);
+    if (action === "rth") {
+      if (channel.mode !== "provider") throw new HttpError(409, "COMMAND_UNAVAILABLE", channel.reason);
+      if (m.control?.rthAt) throw new HttpError(409, "INVALID_STATE_TRANSITION", "The drone is already returning home.");
+    }
+    if (FLIGHT_COMMANDS.includes(action) && channel.mode === "provider") {
+      if (!opts.confirmPilotInCommand) throw new HttpError(422, "VALIDATION_ERROR", "Confirm that you are the pilot in command before sending a flight command.");
+      if (action === "pause" && m.control?.rthAt) throw new HttpError(409, "INVALID_STATE_TRANSITION", "The drone is returning home; it cannot be paused.");
+      const nowIso = new Date().toISOString();
+      const c = m.control ?? { pausedTotalMs: 0 };
+      if (action === "pause") c.pausedAt = nowIso;
+      if ((action === "resume" || action === "rth" || action === "abort") && c.pausedAt) {
+        c.pausedTotalMs += Date.now() - Date.parse(c.pausedAt);
+        c.pausedAt = undefined;
+      }
+      if (action === "rth" || action === "abort") c.rthAt ??= nowIso;
+      m.control = c;
+      const d = db().drones.find((x) => x.id === m.droneId);
+      const label = action === "rth" || action === "abort" ? "RETURN_TO_HOME" : action.toUpperCase();
+      event(ctx, m, "command_sent", `${label} sent to ${d?.name ?? "drone"} (${d?.providerKey ?? "adapter"})`);
+      // The simulator adapter acknowledges synchronously; real adapters ack asynchronously over their uplink.
+      event(ctx, m, "command_ack", `${label} acknowledged by ${d?.name ?? "drone"}`);
+      void audit(ctx, "mission.command", "mission", m.id, { projectId: m.projectId, changes: { command: [null, label] } });
+    }
+    execution = { mode: channel.mode, providerCommandSent: FLIGHT_COMMANDS.includes(action) && channel.mode === "provider", reason: channel.reason };
+  }
   const from = m.status;
   m.status = to;
-  event(ctx, m, "state_changed", `${from.replace("_", " ")} → ${to.replace("_", " ")}${opts.reason ? ` — ${opts.reason}` : ""}`);
-  return { mission: m, from, execution: action === "start" ? { mode: "logical" as const, providerCommandSent: false } : undefined };
+  if (from !== to) event(ctx, m, "state_changed", `${from.replace("_", " ")} → ${to.replace("_", " ")}${opts.reason ? ` — ${opts.reason}` : ""}`);
+  return { mission: m, from, execution };
 }
 
 export function updateChecklist(ctx: AuthContext, id: UUID, itemId: string, checked: boolean) {
@@ -358,6 +403,7 @@ export function transitionFinding(ctx: AuthContext, id: UUID, to: Finding["statu
   assertCan(ctx, to === "wont_fix" ? "inspection:approve" : "finding:resolve", f);
   if (restriction(ctx, "finding:resolve", f.projectId) === "A" && f.assigneeId !== ctx.userId) throw forbidden("finding:resolve (assigned only)");
   f.status = to;
+  if (to === "resolved") f.resolvedAt ??= new Date().toISOString();
   return f;
 }
 

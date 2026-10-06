@@ -13,7 +13,7 @@ export type OrgStatus = "active" | "read_only" | "suspended" | "pending_deletion
 export interface Organization {
   id: UUID; name: string; slug: string; status: OrgStatus; country: string;
   timezone: string; region: string; brandColor: string; plan: "starter" | "professional" | "enterprise";
-  settings: { mfaRequired: boolean; externalSharing: boolean; missionApprovalRequired: boolean; aiEnabled: boolean; fourEyesProgress: boolean };
+  settings: { mfaRequired: boolean; externalSharing: boolean; missionApprovalRequired: boolean; aiEnabled: boolean; fourEyesProgress: boolean; droneCommandsEnabled?: boolean };
   aiCreditsUsed: number; aiCreditsLimit: number;
   createdAt: string;
 }
@@ -25,7 +25,7 @@ export interface User {
 }
 
 export interface Membership {
-  id: UUID; organizationId: UUID; userId: UUID; role: RoleKey; status: "active" | "deactivated"; joinedAt: string;
+  id: UUID; organizationId: UUID; userId: UUID; role: RoleKey; status: "active" | "deactivated"; joinedAt: string; scimExternalId?: string;
 }
 
 export interface ProjectMember { organizationId: UUID; projectId: UUID; userId: UUID; role: RoleKey }
@@ -56,6 +56,8 @@ export interface Drone {
   manufacturer: string; model: string; serialNumber: string; registrationNumber: string;
   registrationExpiresAt: string; status: DroneStatus; maxFlightTimeMin: number; maxSpeedMps: number;
   totalFlightSeconds: number; totalFlights: number; homeSiteId?: UUID;
+  /** Phase 3: adapter certified for flight commands (pause/resume/RTH) — docs Drone-Architecture §5.1. */
+  missionControlVerified?: boolean;
 }
 
 export interface Pilot {
@@ -82,6 +84,8 @@ export interface Mission {
   checklist: { id: string; label: string; checked: boolean }[]; abortReason?: string;
   rejectionReason?: string; isSimulated: boolean; createdBy?: UUID; createdAt: string;
   summary?: { durationS: number; distanceM: number; maxAltM: number; minBattery: number };
+  /** Phase 3: commanded state for adapters with verified missionControl. */
+  control?: { pausedAt?: string; pausedTotalMs: number; rthAt?: string };
 }
 
 export interface MissionEvent { id: UUID; organizationId: UUID; missionId: UUID; at: string; type: string; text: string; actorId?: UUID }
@@ -124,6 +128,8 @@ export interface Finding {
   code: string; title: string; description: string; category: string; severity: Severity;
   status: "open" | "in_progress" | "resolved" | "verified" | "closed" | "wont_fix";
   location: LngLat; assigneeId?: UUID; dueDate: string; aiGenerated: boolean; createdAt: string;
+  /** Set when the finding first reaches "resolved" (MTTR / SLA analytics). */
+  resolvedAt?: string;
 }
 
 export interface Report {
@@ -206,11 +212,38 @@ export interface RetentionPolicy { organizationId: UUID; dataClass: DataClass; r
 export interface LegalHold { id: UUID; organizationId: UUID; projectId?: UUID; reason: string; placedBy: UUID; placedAt: string; releasedAt?: string; releasedBy?: UUID }
 
 export interface Integration {
-  id: UUID; organizationId: UUID; provider: "dji_cloud" | "nodeodm"; name: string; status: "connected" | "error" | "pending";
+  id: UUID; organizationId: UUID; provider: "dji_cloud" | "nodeodm" | "procore" | "acc"; name: string; status: "connected" | "error" | "pending";
   config: Record<string, string>; secretEnc?: string; lastCheckedAt?: string; lastError?: string; createdAt: string;
+  /** OAuth connectors (Procore, ACC): encrypted {access_token, refresh_token, expires_at}. */
+  tokenEnc?: string;
 }
 
 export interface BreakGlassSession {
   id: UUID; staffUserId: UUID; organizationId: UUID; ticketRef: string; justification: string;
   startsAt: string; endsAt: string; endedEarlyAt?: string;
+}
+
+// ---------------------------------------------------------------- Phase 3
+
+export interface Viewpoint {
+  id: UUID; organizationId: UUID; siteId: UUID; projectId: UUID; name: string; createdBy: UUID; createdAt: string;
+  visibility: "private" | "project"; camera: { lng: number; lat: number; height: number; heading: number; pitch: number; roll: number };
+}
+
+export interface SsoConfig {
+  organizationId: UUID; protocol: "oidc" | "saml"; issuer: string; clientId: string; clientSecretEnc?: string;
+  domains: { domain: string; token: string; verifiedAt?: string }[]; enforced: boolean; jitRole: RoleKey; enabled: boolean; updatedAt: string;
+}
+
+export interface ScimToken { id: UUID; organizationId: UUID; prefix: string; tokenHash: string; createdBy: UUID; createdAt: string; lastUsedAt?: string; revokedAt?: string }
+
+export interface EdgeDevice {
+  id: UUID; organizationId: UUID; droneId: UUID; name: string; tokenHash: string; prefix: string; createdBy: UUID; createdAt: string;
+  lastSeenAt?: string; messagesAccepted: number; messagesRejected: number; revokedAt?: string;
+}
+
+export interface TelemetrySample {
+  droneId: UUID; missionId?: UUID; seq: number; timestamp: string; receivedAt: string; latitude: number; longitude: number; altitude: number;
+  relativeAltitude: number; speed: number; heading: number; battery: number; satellites: number; gpsSignal: string; signalStrength?: number;
+  flightTime?: number; flightMode?: string; simulated: false; source: "edge_bridge";
 }

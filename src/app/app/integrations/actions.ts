@@ -172,3 +172,24 @@ export async function disconnectProviderAction(f: FormData) {
   if (i >= 0) { const [x] = db().integrations.splice(i, 1); await audit(ctx, "integration.disconnected", "integration", x.id); }
   revalidatePath("/app/integrations");
 }
+
+// ---------- Construction platforms: Procore, Autodesk Construction Cloud (INTEG-010/011) ----------
+export async function saveConnectorAction(_: IntState, f: FormData): Promise<IntState> {
+  const ctx = await requireContext();
+  try {
+    assertCan(ctx, "integration:manage");
+    const provider = z.enum(["procore", "acc"]).parse(f.get("provider"));
+    const clientId = z.string().trim().min(6, "Enter the client ID from your developer app.").max(200).parse(f.get("clientId"));
+    const secret = String(f.get("secret") ?? "");
+    const existing = db().integrations.find((i) => i.organizationId === ctx.orgId && i.provider === provider);
+    if (!existing && !secret) throw new HttpError(422, "VALIDATION_ERROR", "Enter the client secret.");
+    const integ = existing ?? { id: newId(), organizationId: ctx.orgId, provider, name: provider === "procore" ? "Procore" : "Autodesk Construction Cloud", status: "pending" as const, config: {}, createdAt: new Date().toISOString() };
+    if (existing && existing.config.clientId !== clientId) integ.tokenEnc = undefined; // new app → re-authorize
+    integ.config = { clientId };
+    if (secret) integ.secretEnc = encrypt(secret);
+    integ.status = integ.tokenEnc ? integ.status : "pending";
+    if (!existing) db().integrations.push(integ);
+    await audit(ctx, existing ? "integration.updated" : "integration.connected", "integration", integ.id, { changes: { provider: [null, provider] } });
+  } catch (e) { return fail(e); }
+  return done("Credentials saved. Now click Authorize to grant access.");
+}

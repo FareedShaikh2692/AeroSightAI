@@ -4,7 +4,7 @@ import type {
   Organization, User, Membership, ProjectMember, Project, Site, Asset, Drone, Pilot, Mission, MissionEvent,
   Media, Survey, Milestone, ProgressRecord, Inspection, Finding, Report, Notification, AuditLog, RoleKey, LngLat, MissionStatus,
   NotificationPreference, NotificationRule, Webhook, WebhookDelivery, ApiKey, AiAnalysis, AiSuggestion, AiConversation,
-  InspectionTemplate, RetentionPolicy, LegalHold, Integration, BreakGlassSession, DataClass,
+  InspectionTemplate, RetentionPolicy, LegalHold, Integration, BreakGlassSession, DataClass, Viewpoint, SsoConfig, ScimToken, EdgeDevice, TelemetrySample,
 } from "./types";
 import { sid, prng } from "./ids";
 import { hashPassword } from "./password";
@@ -24,6 +24,8 @@ export interface DataSet {
   webhookDeliveries: WebhookDelivery[]; apiKeys: ApiKey[]; aiAnalyses: AiAnalysis[]; aiSuggestions: AiSuggestion[];
   aiConversations: AiConversation[]; inspectionTemplates: InspectionTemplate[]; retentionPolicies: RetentionPolicy[];
   legalHolds: LegalHold[]; integrations: Integration[]; breakGlassSessions: BreakGlassSession[];
+  // Phase 3
+  viewpoints: Viewpoint[]; ssoConfigs: SsoConfig[]; scimTokens: ScimToken[]; edgeDevices: EdgeDevice[]; telemetry: TelemetrySample[];
 }
 
 export const DEFAULT_RETENTION: Record<DataClass, number> = {
@@ -118,6 +120,7 @@ export function buildSeed(now = Date.now()): DataSet {
     inspections: [], findings: [], reports: [], notifications: [], auditLogs: [],
     notificationPreferences: [], notificationRules: [], webhooks: [], webhookDeliveries: [], apiKeys: [], aiAnalyses: [],
     aiSuggestions: [], aiConversations: [], inspectionTemplates: [], retentionPolicies: [], legalHolds: [], integrations: [], breakGlassSessions: [],
+    viewpoints: [], ssoConfigs: [], scimTokens: [], edgeDevices: [], telemetry: [],
   };
   const pw = hashPassword(DEMO_PASSWORD, Buffer.alloc(16, 42));
   const rnd = prng(20261006);
@@ -132,7 +135,7 @@ export function buildSeed(now = Date.now()): DataSet {
     ds.organizations.push({
       id: orgId, name: spec.name, slug: spec.slug, status: "active", country: spec.country, timezone: spec.timezone,
       region: spec.region, brandColor: spec.color, plan: spec.plan, createdAt: iso(today - 400 * DAY),
-      settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: spec.key === "atlas", aiEnabled: true, fourEyesProgress: false },
+      settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: spec.key === "atlas", aiEnabled: true, fourEyesProgress: false, droneCommandsEnabled: true },
       aiCreditsUsed: 0, aiCreditsLimit: spec.plan === "enterprise" ? 50000 : 5000,
     });
     for (const [dataClass, days] of Object.entries(DEFAULT_RETENTION)) ds.retentionPolicies.push({ organizationId: orgId, dataClass: dataClass as DataClass, retentionDays: days, updatedAt: iso(today - 400 * DAY) });
@@ -174,7 +177,7 @@ export function buildSeed(now = Date.now()): DataSet {
         serialNumber: `${mf.slice(0, 3).toUpperCase()}${spec.key.slice(0, 2).toUpperCase()}${(100231 + i * 977).toString(36).toUpperCase()}`,
         registrationNumber: `${spec.country}-UAS-${String(1200 + i * 37).padStart(5, "0")}`,
         registrationExpiresAt: date(today + (i === 2 ? 20 : 300) * DAY), status, maxFlightTimeMin: ft, maxSpeedMps: 15,
-        totalFlightSeconds: Math.round(rnd() * 200000), totalFlights: Math.round(40 + rnd() * 160) });
+        totalFlightSeconds: Math.round(rnd() * 200000), totalFlights: Math.round(40 + rnd() * 160), missionControlVerified: provider === "simulator" });
       return id;
     });
 
@@ -313,7 +316,8 @@ export function buildSeed(now = Date.now()): DataSet {
                 title: ["Hairline cracking at column C3-12", "Missing edge protection, level 9", "Exposed rebar at pier cap", "Water pooling near access road", "Formwork prop misaligned"][(ii * 2 + fi + pIndex * 3) % 5],
                 description: "Observed during inspection; see attached evidence.", category: ["structural", "safety", "quality"][(ii + fi) % 3], severity: sev,
                 status: ii === 2 ? "resolved" : fi === 0 ? "open" : "in_progress", location: a?.location ?? center, assigneeId: userByRole.site_manager,
-                dueDate: date(today + (sev === "critical" ? -1 : sev === "high" ? 5 : 20) * DAY), aiGenerated: false, createdAt: iso(today - (5 - ii) * DAY) });
+                dueDate: date(today + (sev === "critical" ? -1 : sev === "high" ? 5 : 20) * DAY), aiGenerated: false, createdAt: iso(today - (5 - ii) * DAY),
+                ...(ii === 2 ? { resolvedAt: iso(today - (5 - ii) * DAY + (sev === "medium" ? 40 : 20 + fi * 30) * 3_600_000) } : {}) });
             });
           });
         }

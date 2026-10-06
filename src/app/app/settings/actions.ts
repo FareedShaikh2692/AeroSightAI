@@ -102,6 +102,7 @@ export async function saveOrgSettingsAction(_: SettingsState, f: FormData): Prom
     org.settings = {
       mfaRequired: f.get("mfaRequired") === "on", externalSharing: f.get("externalSharing") === "on",
       missionApprovalRequired: f.get("missionApprovalRequired") === "on", aiEnabled: f.get("aiEnabled") === "on", fourEyesProgress: f.get("fourEyesProgress") === "on",
+      droneCommandsEnabled: f.get("droneCommandsEnabled") === "on",
     };
     const changes = Object.fromEntries(Object.entries({ ...org.settings, brandColor: org.brandColor }).filter(([k, v]) => (before as Record<string, unknown>)[k] !== v)
       .map(([k, v]) => [k, [(before as Record<string, unknown>)[k], v]])) as Record<string, [unknown, unknown]>;

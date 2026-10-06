@@ -3,7 +3,7 @@ import type { Mission, MissionStatus, Site, Waypoint } from "./types";
 import { pointInPolygon, withinBuffer } from "./geo";
 
 export type MissionAction =
-  | "plan" | "submit" | "approve" | "reject" | "markReady" | "start" | "pause" | "resume" | "stop" | "abort" | "cancel" | "revise";
+  | "plan" | "submit" | "approve" | "reject" | "markReady" | "start" | "pause" | "resume" | "stop" | "abort" | "cancel" | "revise" | "rth";
 
 export const TRANSITIONS: Partial<Record<MissionStatus, Partial<Record<MissionAction, MissionStatus>>>> = {
   draft: { plan: "planned", cancel: "cancelled" },
@@ -12,8 +12,8 @@ export const TRANSITIONS: Partial<Record<MissionStatus, Partial<Record<MissionAc
   approved: { markReady: "ready", cancel: "cancelled" },
   rejected: { revise: "draft" },
   ready: { start: "in_progress", cancel: "cancelled" },
-  in_progress: { pause: "paused", stop: "completed", abort: "aborted" },
-  paused: { resume: "in_progress", abort: "aborted" },
+  in_progress: { pause: "paused", rth: "in_progress", stop: "completed", abort: "aborted" },
+  paused: { resume: "in_progress", rth: "in_progress", abort: "aborted" },
 };
 
 export function nextStatus(from: MissionStatus, action: MissionAction): MissionStatus | null {

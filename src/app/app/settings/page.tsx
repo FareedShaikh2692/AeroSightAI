@@ -8,6 +8,10 @@ import { MANDATORY, prefFor } from "@/lib/events";
 import { RETENTION_BOUNDS, activeHolds } from "@/lib/privacy";
 import { MfaSetup, PreferencesForm, OrgSettingsForm, RetentionForm, LegalHoldForm } from "./SettingsForms";
 import { releaseHoldAction } from "./actions";
+import { removeDomainAction, revokeScimTokenAction } from "./sso-actions";
+import { SsoConfigForm, AddDomainForm, VerifyDomainButton, CreateScimToken } from "./SsoForms";
+import { getSsoConfig, JIT_ROLES } from "@/lib/sso";
+import { requestOrigin } from "@/lib/origin";
 import { fmtDate } from "@/lib/format";
 import type { DataClass, NotificationCategory } from "@/lib/types";
 
@@ -23,7 +27,10 @@ export default async function Settings({ searchParams }: { searchParams: Promise
     { key: "notifications", label: "Notifications", href: "/app/settings?tab=notifications" },
     { key: "organization", label: "Organization", href: "/app/settings?tab=organization" },
     { key: "data", label: "Data & privacy", href: "/app/settings?tab=data" },
+    ...(can(ctx, "user:manage") ? [{ key: "sso", label: "Single sign-on", href: "/app/settings?tab=sso" }] : []),
   ];
+  const sso = getSsoConfig(ctx.orgId);
+  const origin = await requestOrigin();
   return (
     <>
       <PageHeader eyebrow="Organization" title="Settings" />
@@ -56,6 +63,44 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             <dt className="text-ink-3">Plan</dt><dd className="capitalize">{org.plan}</dd>
             <dt className="text-ink-3">AI credits</dt><dd className="font-mono">{org.aiCreditsUsed} / {org.aiCreditsLimit}</dd>
           </dl></Card>
+        </div>
+      )}
+
+      {tab === "sso" && can(ctx, "user:manage") && (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <Card title="OpenID Connect identity provider">
+            <SsoConfigForm callbackUrl={`${origin}/api/auth/sso/callback`} hasVerifiedDomain={!!sso?.domains.some((d) => d.verifiedAt)}
+              roles={JIT_ROLES.map((r) => ({ key: r, label: ROLE_LABELS[r] }))}
+              c={sso && { issuer: sso.issuer, clientId: sso.clientId, hasSecret: !!sso.clientSecretEnc, jitRole: sso.jitRole, enabled: sso.enabled, enforced: sso.enforced }} />
+            <p className="mt-4 text-xs text-ink-3">SAML 2.0: <Badge>Integration Required</Badge> — specified in docs/07-Security/Authentication.md §6.3; use OIDC with Okta, Entra ID or Google Workspace.</p>
+          </Card>
+          <div className="space-y-6">
+            <Card title="Verified email domains">
+              <p className="mb-3 text-xs text-ink-2">Only users with an email in a verified domain can sign in through SSO or be provisioned. Verification is by DNS TXT record.</p>
+              <ul className="mb-4 space-y-2">
+                {(sso?.domains ?? []).map((d) => (
+                  <li key={d.domain} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm">
+                    <span className="font-mono">{d.domain} {d.verifiedAt ? <Badge tone="ok">verified</Badge> : <Badge tone="warn">pending</Badge>}
+                      {!d.verifiedAt && <span className="mt-1 block break-all text-[11px] text-ink-3">TXT _aerosight-verification.{d.domain} = {d.token}</span>}</span>
+                    <span className="flex gap-2">{!d.verifiedAt && <VerifyDomainButton domain={d.domain} />}
+                      <form action={removeDomainAction}><input type="hidden" name="domain" value={d.domain} /><button className="btn btn-ghost h-7 text-xs">Remove</button></form></span>
+                  </li>
+                ))}
+                {!sso?.domains.length && <li className="text-sm text-ink-3">No domains yet.</li>}
+              </ul>
+              {sso ? <AddDomainForm /> : <p className="text-xs text-ink-3">Save the identity-provider settings first.</p>}
+            </Card>
+            <Card title="SCIM 2.0 provisioning">
+              <p className="mb-3 text-xs text-ink-2">Base URL <code className="break-all">{origin}/api/scim/v2</code> · Bearer token. Supports Users: list/filter, create, replace, patch (active), delete (deactivates).</p>
+              <ul className="mb-3 space-y-1 text-sm">
+                {db().scimTokens.filter((t) => t.organizationId === ctx.orgId).map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2"><span className="font-mono text-xs">asai_scim_{t.prefix}_… <span className="text-ink-3">· {t.lastUsedAt ? `used ${fmtDate(t.lastUsedAt)}` : "never used"}</span></span>
+                    {t.revokedAt ? <Badge tone="bad">revoked</Badge> : <form action={revokeScimTokenAction}><input type="hidden" name="id" value={t.id} /><button className="btn btn-ghost h-7 text-xs">Revoke</button></form>}</li>
+                ))}
+              </ul>
+              <CreateScimToken />
+            </Card>
+          </div>
         </div>
       )}
 

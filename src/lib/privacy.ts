@@ -81,7 +81,10 @@ export function organizationExport(orgId: UUID) {
     inspections: own(d.inspections), findings: own(d.findings), reports: own(d.reports), aiAnalyses: own(d.aiAnalyses), aiSuggestions: own(d.aiSuggestions),
     retentionPolicies: own(d.retentionPolicies), legalHolds: own(d.legalHolds),
     webhooks: own(d.webhooks).map(({ secretEnc: _s, ...w }) => w), apiKeys: own(d.apiKeys).map(({ keyHash: _k, ...k }) => k),
-    notificationRules: own(d.notificationRules).map(({ webhookUrlEnc: _u, ...r }) => r), integrations: own(d.integrations).map(({ secretEnc: _s, ...i }) => i),
+    notificationRules: own(d.notificationRules).map(({ webhookUrlEnc: _u, ...r }) => r), integrations: own(d.integrations).map(({ secretEnc: _s, tokenEnc: _t, ...i }) => i),
+    viewpoints: own(d.viewpoints), edgeDevices: own(d.edgeDevices).map(({ tokenHash: _h, ...e }) => e),
+    ssoConfig: d.ssoConfigs.filter((c) => c.organizationId === orgId).map(({ clientSecretEnc: _c, ...c }) => c),
+    scimTokens: own(d.scimTokens).map(({ tokenHash: _h, ...t }) => t),
     auditLogs: own(d.auditLogs),
   };
 }

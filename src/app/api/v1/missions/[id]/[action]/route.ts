@@ -5,7 +5,7 @@ import { audit } from "@/lib/auth";
 import type { MissionAction } from "@/lib/mission";
 import { missionEvent } from "@/lib/events";
 
-const ACTIONS: Record<string, MissionAction> = { plan: "plan", submit: "submit", approve: "approve", reject: "reject", ready: "markReady", start: "start", pause: "pause", resume: "resume", stop: "stop", abort: "abort", cancel: "cancel", revise: "revise" };
+const ACTIONS: Record<string, MissionAction> = { plan: "plan", submit: "submit", approve: "approve", reject: "reject", ready: "markReady", start: "start", pause: "pause", resume: "resume", stop: "stop", abort: "abort", cancel: "cancel", revise: "revise", rth: "rth" };
 
 // POST /api/v1/missions/:id/{start|stop|abort|...}
 export const POST = api<{ id: string; action: string }>(async (ctx, req, { id, action }) => {

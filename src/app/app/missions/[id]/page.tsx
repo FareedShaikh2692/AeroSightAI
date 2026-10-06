@@ -16,7 +16,7 @@ import { MediaThumb } from "@/components/MediaThumb";
 
 const STEPS = ["draft", "planned", "pending_approval", "approved", "ready", "in_progress", "completed"];
 const PERM: Record<string, Permission> = { plan: "mission:update", submit: "mission:update", revise: "mission:update", markReady: "mission:update", cancel: "mission:update",
-  approve: "mission:approve", reject: "mission:approve", start: "mission:start", pause: "mission:start", resume: "mission:start", stop: "mission:start", abort: "mission:abort" };
+  approve: "mission:approve", reject: "mission:approve", start: "mission:start", pause: "mission:start", resume: "mission:start", stop: "mission:start", abort: "mission:abort", rth: "mission:start" };
 
 export default async function MissionDetail({ params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireContext();
@@ -27,7 +27,9 @@ export default async function MissionDetail({ params }: { params: Promise<{ id: 
   const drone = db().drones.find((d) => d.id === m.droneId);
   const pilot = db().pilots.find((p) => p.id === m.pilotId);
   const isAssignedPilot = pilot?.userId === ctx.userId;
-  const actions = availableActions(m.status).map((a) => {
+  const live = m.status === "in_progress" || m.status === "paused";
+  const channel = live ? repo.commandChannel(ctx, m) : undefined;
+  const actions = availableActions(m.status).filter((a) => a !== "rth" || (channel?.mode === "provider" && !m.control?.rthAt)).filter((a) => a !== "pause" || !m.control?.rthAt).map((a) => {
     const perm = PERM[a];
     let allowed = can(ctx, perm, m);
     let why = allowed ? undefined : `Requires ${perm}`;
@@ -52,7 +54,7 @@ export default async function MissionDetail({ params }: { params: Promise<{ id: 
 
       <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
         <div className="space-y-6">
-          {m.status === "in_progress" ? (
+          {live ? (
             <Card title="Live flight"><LiveTelemetry missionId={m.id} fitTo={site.boundary} height={460} compact
               data={{ sites: [{ id: site.id, name: site.name, boundary: site.boundary }], noFly: site.noFlyZones, path: m.waypoints.map((w) => [w.lng, w.lat]) }} /></Card>
           ) : (
@@ -71,7 +73,8 @@ export default async function MissionDetail({ params }: { params: Promise<{ id: 
           </Card>
         </div>
         <div className="space-y-6">
-          <Card title="Actions"><MissionActions id={m.id} actions={actions} checklistDone={m.checklist.every((c) => c.checked)} />
+          <Card title="Actions"><MissionActions id={m.id} actions={actions} checklistDone={m.checklist.every((c) => c.checked)} channel={channel} />
+            {m.control?.rthAt && <p className="mt-3 text-sm text-warn">Return-to-home commanded — the drone is flying back to the launch point. Complete the mission once it has landed.</p>}
             {m.rejectionReason && <p className="mt-3 text-sm text-bad">Rejected: {m.rejectionReason}</p>}
             {m.abortReason && <p className="mt-3 text-sm text-bad">Aborted: {m.abortReason}</p>}
           </Card>

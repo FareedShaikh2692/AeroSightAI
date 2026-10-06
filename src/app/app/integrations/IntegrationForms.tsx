@@ -1,7 +1,7 @@
 "use client";
 import { useActionState } from "react";
 import { FormError } from "@/components/ui";
-import { createRuleAction, testRuleAction, createWebhookAction, testWebhookAction, createApiKeyAction, connectProviderAction, type IntState } from "./actions";
+import { createRuleAction, testRuleAction, createWebhookAction, testWebhookAction, createApiKeyAction, connectProviderAction, saveConnectorAction, type IntState } from "./actions";
 
 function Result({ s }: { s: IntState }) {
   return (
@@ -91,6 +91,21 @@ export function ProviderForm({ provider, current }: { provider: "dji_cloud" | "n
       {provider === "dji_cloud" && <div><label className="label" htmlFor="appId">App ID</label><input id="appId" name="appId" defaultValue={current?.appId} className="input font-mono" /></div>}
       <div><label className="label" htmlFor={`${provider}-secret`}>{provider === "nodeodm" ? "Token (optional)" : "App Key"}</label><input id={`${provider}-secret`} name="secret" type="password" className="input" autoComplete="off" /></div>
       <button className="btn btn-primary" disabled={p}>{p ? "Testing…" : current ? "Update & test" : "Connect & test"}</button>
+    </form>
+  );
+}
+
+export function ConnectorForm({ provider, clientId }: { provider: "procore" | "acc"; clientId?: string }) {
+  const [s, a, p] = useActionState<IntState, FormData>(saveConnectorAction, {});
+  return (
+    <form action={a} className="space-y-3">
+      <Result s={s} />
+      <input type="hidden" name="provider" value={provider} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div><label className="label" htmlFor={`${provider}-cid`}>Client ID</label><input id={`${provider}-cid`} name="clientId" defaultValue={clientId} className="input font-mono text-xs" required /></div>
+        <div><label className="label" htmlFor={`${provider}-cs`}>Client secret</label><input id={`${provider}-cs`} name="secret" type="password" className="input" autoComplete="off" placeholder={clientId ? "•••••• (unchanged)" : ""} /></div>
+      </div>
+      <button className="btn btn-secondary" disabled={p}>Save credentials</button>
     </form>
   );
 }

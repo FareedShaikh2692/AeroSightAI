@@ -1,3 +1,4 @@
+import { requestOrigin } from "@/lib/origin";
 import { requireContext } from "@/lib/auth";
 import * as repo from "@/lib/repo";
 import { can } from "@/lib/policy";
@@ -5,14 +6,16 @@ import { db } from "@/lib/store";
 import { PageHeader, Badge, Forbidden, Tabs, Card, StatusBadge } from "@/components/ui";
 import { EVENT_CATALOG, WEBHOOK_EVENTS } from "@/lib/events";
 import { ROLE_PERMISSIONS } from "@/lib/permissions";
-import { RuleForm, TestRule, WebhookForm, TestWebhook, ApiKeyForm, ProviderForm } from "./IntegrationForms";
+import { RuleForm, TestRule, WebhookForm, TestWebhook, ApiKeyForm, ProviderForm, ConnectorForm } from "./IntegrationForms";
 import { deleteRuleAction, toggleWebhookAction, revokeApiKeyAction, disconnectProviderAction } from "./actions";
 import { fmtDate, fmtDateTime, relTime } from "@/lib/format";
 
-export default async function Integrations({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+export default async function Integrations({ searchParams }: { searchParams: Promise<{ tab?: string; msg?: string }> }) {
   const ctx = await requireContext();
   if (!can(ctx, "integration:manage")) return <Forbidden perm="integration:manage" />;
-  const { tab = "channels" } = await searchParams;
+  const { tab = "channels", msg } = await searchParams;
+  const canManage = can(ctx, "integration:manage");
+  const origin = await requestOrigin();
   const rules = db().notificationRules.filter((r) => r.organizationId === ctx.orgId);
   const hooks = db().webhooks.filter((w) => w.organizationId === ctx.orgId);
   const deliveries = db().webhookDeliveries.filter((d) => d.organizationId === ctx.orgId).slice(-20).reverse();
@@ -23,6 +26,7 @@ export default async function Integrations({ searchParams }: { searchParams: Pro
     { key: "webhooks", label: `Webhooks (${hooks.length})`, href: "/app/integrations?tab=webhooks" },
     { key: "keys", label: `API keys (${keys.filter((k) => !k.revokedAt).length})`, href: "/app/integrations?tab=keys" },
     { key: "providers", label: "Drone & processing", href: "/app/integrations?tab=providers" },
+    { key: "construction", label: "Construction platforms & SIEM", href: "/app/integrations?tab=construction" },
   ];
   return (
     <>
@@ -86,6 +90,46 @@ export default async function Integrations({ searchParams }: { searchParams: Pro
             )}
           </Card>
           {can(ctx, "apikey:manage") && <Card title="Create API key"><ApiKeyForm perms={[...ROLE_PERMISSIONS[ctx.role]].filter((p) => !["org:delete", "billing:manage", "role:manage", "user:manage", "apikey:manage"].includes(p))} projects={repo.listProjects(ctx).map((p) => ({ id: p.id, name: p.name }))} /></Card>}
+        </div>
+      )}
+
+      {tab === "construction" && (
+        <div className="space-y-6">
+          {msg && <p className="rounded-lg border border-line bg-raised px-3 py-2 text-sm">{msg.slice(0, 300)}</p>}
+          <div className="grid gap-6 xl:grid-cols-2">
+            {(["procore", "acc"] as const).map((prov) => {
+              const i = integ.find((x) => x.provider === prov);
+              return (
+                <Card key={prov} title={prov === "procore" ? "Procore" : "Autodesk Construction Cloud (ACC)"}
+                  actions={<Badge tone={i?.status === "connected" ? "ok" : "accent"}>{i?.status === "connected" ? "connected" : "integration required"}</Badge>}>
+                  <p className="mb-3 text-sm text-ink-2">{prov === "procore"
+                    ? "Link AeroSight projects to Procore projects to push inspection findings as Observations and published reports to Documents."
+                    : "Connect through Autodesk Platform Services to push findings as ACC Issues and reports to Docs."}</p>
+                  <ol className="mb-4 list-decimal space-y-1 pl-5 text-xs text-ink-2">
+                    <li>Create an app in the {prov === "procore" ? "Procore Developer Portal" : "APS developer portal (aps.autodesk.com)"} with redirect URI <code className="break-all">{origin}/api/integrations/oauth/{prov}/callback</code>.</li>
+                    <li>Enter its client ID and secret below, then click Authorize.</li>
+                  </ol>
+                  {i?.lastError && <p className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">{i.lastError}</p>}
+                  {canManage ? <ConnectorForm provider={prov} clientId={i?.config.clientId} /> : <p className="text-xs text-ink-3">Requires integration:manage.</p>}
+                  {canManage && i?.config.clientId && (
+                    <div className="mt-3 flex gap-2">
+                      <a href={`/api/integrations/oauth/${prov}/start`} className="btn btn-primary">Authorize with {prov === "procore" ? "Procore" : "Autodesk"}</a>
+                      <form action={disconnectProviderAction}><input type="hidden" name="id" value={i.id} /><button className="btn btn-ghost">Disconnect</button></form>
+                    </div>
+                  )}
+                  <p className="mt-3 text-[11px] text-ink-3">Finding/report sync activates once projects are mapped — Planned.</p>
+                </Card>
+              );
+            })}
+          </div>
+          <Card title="SIEM audit export">
+            <p className="text-sm text-ink-2">Stream the tamper-evident audit log into Splunk, Microsoft Sentinel, Elastic or Datadog. Events are newline-delimited JSON (ECS-style fields) and carry the SHA-256 hash chain so your SIEM can verify integrity.</p>
+            <ul className="mt-3 space-y-1 text-xs text-ink-2">
+              <li>Pull: <code>GET {origin}/api/v1/audit-logs?format=jsonl&amp;since=&lt;ISO timestamp&gt;</code> with <code>Authorization: ApiKey …</code> (a key with <code>audit:read</code>).</li>
+              <li>Push: subscribe a signed webhook to security events under the Webhooks tab.</li>
+            </ul>
+            {can(ctx, "audit:read") && <a href="/api/v1/audit-logs?format=jsonl" className="btn btn-secondary mt-3">Download audit log (JSONL)</a>}
+          </Card>
         </div>
       )}
 

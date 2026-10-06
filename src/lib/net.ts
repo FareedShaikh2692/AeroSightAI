@@ -35,14 +35,14 @@ export async function assertSafeUrl(raw: string): Promise<URL> {
   return u;
 }
 
-export async function safeFetch(raw: string, init: RequestInit & { timeoutMs?: number } = {}) {
+export async function safeFetch(raw: string, init: RequestInit & { timeoutMs?: number; maxBytes?: number } = {}) {
   const u = await assertSafeUrl(raw);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), init.timeoutMs ?? 8000);
   const started = Date.now();
   try {
     const res = await fetch(u, { ...init, redirect: "manual", signal: ctrl.signal, headers: { "user-agent": "AeroSight-Webhooks/1.0", ...(init.headers ?? {}) } });
-    return { status: res.status, ok: res.status >= 200 && res.status < 300, durationMs: Date.now() - started, text: async () => (await res.text()).slice(0, 2000) };
+    return { status: res.status, ok: res.status >= 200 && res.status < 300, durationMs: Date.now() - started, text: async () => (await res.text()).slice(0, init.maxBytes ?? 2000) };
   } finally {
     clearTimeout(t);
   }

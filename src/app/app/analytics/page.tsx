@@ -4,14 +4,17 @@ import { can } from "@/lib/policy";
 import { PageHeader, Card, Kpi, Forbidden, Progress } from "@/components/ui";
 import { fmtBytes } from "@/lib/format";
 import { db } from "@/lib/store";
+import { analyticsData } from "@/lib/analytics-data";
+import { Download } from "lucide-react";
 
-export default async function Analytics() {
+const fmtH = (h: number | null) => (h === null ? "—" : h >= 48 ? `${(h / 24).toFixed(1)} d` : `${h.toFixed(1)} h`);
+
+export default async function Analytics({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
   const ctx = await requireContext();
   if (!can(ctx, "analytics:read")) return <Forbidden perm="analytics:read" />;
+  const days = [30, 90, 365].includes(Number((await searchParams).days)) ? Number((await searchParams).days) : 90;
   // ANALYTICS-006: every aggregate below is computed only over projects the user can access.
-  const projects = repo.listProjects(ctx);
-  const missions = can(ctx, "mission:read") ? repo.listMissions(ctx) : [];
-  const findings = can(ctx, "inspection:read") ? repo.listFindings(ctx) : [];
+  const { projects, missions, findings, bench, sla, fleet } = analyticsData(ctx, days);
   const media = repo.listMedia(ctx);
   const done = missions.filter((m) => m.status === "completed");
   const hours = done.reduce((s, m) => s + (m.summary?.durationS ?? 0), 0) / 3600;
@@ -27,6 +30,14 @@ export default async function Analytics() {
   return (
     <>
       <PageHeader eyebrow="Overview" title="Analytics" subtitle={`Computed across ${projects.length} accessible project(s). Data as of ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC.`} />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-lg border border-line p-1 text-xs" role="group" aria-label="Period">
+          {[30, 90, 365].map((d) => <a key={d} href={`/app/analytics?days=${d}`} className={`rounded-md px-3 py-1 ${d === days ? "bg-accent text-accent-ink" : "text-ink-2 hover:text-ink"}`} aria-current={d === days ? "true" : undefined}>{d === 365 ? "12 months" : `${d} days`}</a>)}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(["benchmark", "findings", "fleet"] as const).map((k) => <a key={k} href={`/api/v1/analytics/export?dataset=${k}&days=${days}`} className="btn btn-secondary h-8 text-xs"><Download size={14} /> {k === "benchmark" ? "Projects" : k === "findings" ? "Findings & SLA" : "Fleet"} CSV</a>)}
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi label="Flights completed" value={done.length} /><Kpi label="Flight hours" value={hours.toFixed(1)} /><Kpi label="Abort rate" value={missions.length ? `${((aborted / missions.length) * 100).toFixed(0)}%` : "—"} />
         <Kpi label="Media items" value={media.length} /><Kpi label="Storage used (org)" value={fmtBytes(storage)} hint="plan limit 2 TB" />
@@ -44,6 +55,39 @@ export default async function Analytics() {
               <div className="h-3 flex-1 rounded bg-white/5"><div className={`h-3 rounded ${s === "critical" ? "bg-bad" : s === "high" ? "bg-high" : s === "medium" ? "bg-warn" : "bg-info"}`} style={{ width: `${(n / maxSev) * 100}%` }} /></div>
               <span className="w-6 text-right font-mono">{n}</span></div>
           ))}</div>
+        </Card>
+        <Card title="Finding SLA compliance">
+          <div className="mb-4 grid grid-cols-3 gap-3 text-center">
+            <div><div className="font-mono text-2xl">{sla.compliancePct === null ? "—" : `${sla.compliancePct}%`}</div><div className="text-[11px] text-ink-3">within SLA</div></div>
+            <div><div className="font-mono text-2xl">{fmtH(sla.mttrHours)}</div><div className="text-[11px] text-ink-3">mean time to resolve</div></div>
+            <div><div className={`font-mono text-2xl ${sla.breachedOpen ? "text-bad" : ""}`}>{sla.breachedOpen}</div><div className="text-[11px] text-ink-3">open & breached</div></div>
+          </div>
+          <table className="table text-sm"><thead><tr><th>Severity</th><th>Target</th><th>Resolved</th><th>MTTR</th><th>Open (breached)</th></tr></thead><tbody>
+            {sla.bySeverity.map((r) => <tr key={r.severity}><td className="capitalize">{r.severity}</td><td className="font-mono text-xs">{fmtH(r.targetHours)}</td><td className="font-mono">{r.resolved}</td><td className="font-mono text-xs">{fmtH(r.mttrHours)}</td>
+              <td className="font-mono">{r.open}{r.breachedOpen ? <span className="text-bad"> ({r.breachedOpen})</span> : ""}</td></tr>)}
+          </tbody></table>
+        </Card>
+        <Card title={`Fleet utilization · last ${days === 365 ? "12 months" : `${days} days`}`}>
+          {fleet.length === 0 ? <p className="text-sm text-ink-2">No drones visible to your role.</p> : (
+            <div className="space-y-3">{fleet.map((d) => (
+              <div key={d.droneId} className="text-sm"><div className="mb-1 flex justify-between"><span>{d.name} <span className="text-xs text-ink-3">{d.model}</span></span>
+                <span className="font-mono text-xs text-ink-2">{d.hours} h · {d.flights} flights{d.aborted ? ` · ${d.aborted} aborted` : ""} · {d.utilizationPct}%</span></div>
+                <Progress value={d.utilizationPct} tone={d.utilizationPct > 60 ? "warn" : "ok"} /></div>
+            ))}
+            <p className="text-[11px] text-ink-3">Utilization = flight hours ÷ (8 duty hours × days in period).</p></div>
+          )}
+        </Card>
+        <Card title="Project benchmarking" className="xl:col-span-2" pad={false}>
+          <div className="overflow-x-auto"><table className="table text-sm"><thead><tr><th>Project</th><th>Actual / plan</th><th>SV</th><th>Flights</th><th>Flight h</th><th>Abort rate</th><th>Open findings</th><th>MTTR</th><th>SLA</th></tr></thead><tbody>
+            {[...bench].sort((a, b) => a.svPct - b.svPct).map((r) => <tr key={r.projectId}>
+              <td>{r.name}<div className="font-mono text-[11px] text-ink-3">{r.code} · {r.type}</div></td>
+              <td className="font-mono text-xs">{r.actualPct}% / {r.plannedPct}%</td>
+              <td className={`font-mono text-xs ${r.svPct < -5 ? "text-bad" : r.svPct < 0 ? "text-warn" : "text-ok"}`}>{r.svPct > 0 ? "+" : ""}{r.svPct}</td>
+              <td className="font-mono">{r.flights}</td><td className="font-mono">{r.flightHours}</td><td className="font-mono text-xs">{r.abortRatePct === null ? "—" : `${r.abortRatePct}%`}</td>
+              <td className="font-mono">{r.openFindings}{r.criticalOpen ? <span className="text-bad"> ({r.criticalOpen} crit)</span> : ""}</td>
+              <td className="font-mono text-xs">{fmtH(r.mttrHours)}</td><td className="font-mono text-xs">{r.slaPct === null ? "—" : `${r.slaPct}%`}</td></tr>)}
+          </tbody></table></div>
+          <p className="px-5 pb-4 pt-2 text-[11px] text-ink-3">Sorted by schedule variance (most behind first). Benchmarks only include projects you can access.</p>
         </Card>
         <Card title="Project progress vs plan" className="xl:col-span-2">
           <div className="space-y-4">{projects.map((p) => { const pr = repo.projectProgress(ctx, p.id); return (

@@ -5,6 +5,7 @@ import * as repo from "@/lib/repo";
 import { can } from "@/lib/policy";
 import { problem } from "@/lib/api";
 import { telemetryAt } from "@/lib/simulator";
+import { latestSample } from "@/lib/edge";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,17 +22,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const enc = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
-      let n = 0;
+      let n = 0, lastSeq = -1;
       const send = (event: string, data: unknown) => controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       send("welcome", { missionId: mission.id, heartbeatSec: 15, hz, simulated: mission.isSimulated, status: mission.status });
       const timer = setInterval(() => {
         const m = repo.getMission(ctx, id);
-        if (!m || m.status !== "in_progress") {
+        if (!m || (m.status !== "in_progress" && m.status !== "paused")) {
           send("mission_state", { status: m?.status ?? "unknown" });
           clearInterval(timer); controller.close(); return;
         }
         if (!m.isSimulated) {
-          if (n++ % (hz * 15) === 0) send("ping", { t: Date.now(), note: "No live provider connected — telemetry requires a drone provider integration." });
+          // Real aircraft: relay the newest edge-bridge sample (docs/04-Architecture/Drone-Architecture.md §6).
+          const s = m.droneId ? latestSample(m.organizationId, m.droneId, 10_000) : undefined;
+          if (s && s.seq !== lastSeq) { lastSeq = s.seq; send("telemetry", s); }
+          if (n++ % (hz * 15) === 0) send("ping", { t: Date.now(), ...(s ? {} : { note: "Waiting for telemetry from the edge bridge — connect one under Fleet → Edge devices." }) });
+          if (n > hz * 55) { clearInterval(timer); controller.close(); }
           return;
         }
         const { t, alerts } = telemetryAt(m, site, Date.now());
