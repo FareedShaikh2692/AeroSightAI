@@ -4,9 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "AeroSight AI — Drone-Powered Construction Intelligence", template: "%s · AeroSight AI" },
   description: "See Every Site. Track Every Progress. Build Smarter. Drone operations, mapping, inspections, progress tracking and reporting for construction.",
+  applicationName: "AeroSight AI",
+  appleWebApp: { title: "AeroSight AI", statusBarStyle: "black-translucent" },
 };
 
-export const viewport: Viewport = { themeColor: "#0A0F14", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#0B0F14", colorScheme: "dark" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
