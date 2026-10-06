@@ -162,3 +162,68 @@ export function estimate(wps: Waypoint[], p: MissionParams, maxFlightMin = 30) {
     gsdCm: gsdCm(p.altitudeM), batteries: Math.max(1, Math.ceil(durationS / (maxFlightMin * 60 * 0.8))),
   };
 }
+
+// ---- Elevation analysis (SURVEY-009, MAP-008) ------------------------------------------------
+
+export type Sampler = (p: LngLat) => number | null;
+
+/** Points every `stepM` metres along a polyline (inclusive of ends), with cumulative distance. */
+export function densify(line: LngLat[], samples = 120): { p: LngLat; d: number }[] {
+  const total = line.slice(1).reduce((s, p, i) => s + haversine(line[i], p), 0);
+  if (total === 0) return line.map((p) => ({ p, d: 0 }));
+  const out: { p: LngLat; d: number }[] = [];
+  const step = total / (samples - 1);
+  let seg = 0, segStart = 0;
+  for (let k = 0; k < samples; k++) {
+    const target = k * step;
+    while (seg < line.length - 2 && segStart + haversine(line[seg], line[seg + 1]) < target) { segStart += haversine(line[seg], line[seg + 1]); seg++; }
+    const len = haversine(line[seg], line[seg + 1]) || 1;
+    const f = Math.min(1, Math.max(0, (target - segStart) / len));
+    out.push({ p: [line[seg][0] + (line[seg + 1][0] - line[seg][0]) * f, line[seg][1] + (line[seg + 1][1] - line[seg][1]) * f], d: target });
+  }
+  return out;
+}
+
+export function elevationProfile(line: LngLat[], sample: Sampler, samples = 120) {
+  const pts = densify(line, samples).map(({ p, d }) => ({ d, z: sample(p) }));
+  const zs = pts.map((x) => x.z).filter((z): z is number => z !== null);
+  if (!zs.length) return null;
+  let gain = 0, loss = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1].z, b = pts[i].z;
+    if (a === null || b === null) continue;
+    if (b > a) gain += b - a; else loss += a - b;
+  }
+  const total = pts.at(-1)!.d;
+  return { points: pts, min: Math.min(...zs), max: Math.max(...zs), gain, loss, lengthM: total, avgSlopePct: total ? ((zs.at(-1)! - zs[0]) / total) * 100 : 0 };
+}
+
+/**
+ * Cut/fill volume inside a polygon against a base plane at the mean elevation of the polygon edge
+ * ("average edge" base, docs GIS §8). Grid sampling, ≤ ~2,500 cells.
+ */
+export function volumeAnalysis(ring: Polygon, sample: Sampler) {
+  const ref = centroid(ring);
+  const xy = ring.map((p) => toXY(p, ref));
+  const xs = xy.map((q) => q[0]), ys = xy.map((q) => q[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const area = polygonArea(ring);
+  const cell = Math.max(1, Math.sqrt(((maxX - minX) * (maxY - minY)) / 2500));
+  const edge = densify(ring, 80).map(({ p }) => sample(p)).filter((z): z is number => z !== null);
+  if (!edge.length) return null;
+  const base = edge.reduce((s, z) => s + z, 0) / edge.length;
+  let cut = 0, fill = 0, cells = 0, missing = 0;
+  for (let x = minX + cell / 2; x < maxX; x += cell) {
+    for (let y = minY + cell / 2; y < maxY; y += cell) {
+      const p = fromXY([x, y], ref);
+      if (!pointInPolygon(p, ring)) continue;
+      const z = sample(p);
+      if (z === null) { missing++; continue; }
+      cells++;
+      const dz = z - base;
+      if (dz > 0) cut += dz * cell * cell; else fill += -dz * cell * cell;
+    }
+  }
+  if (!cells) return null;
+  return { baseElevationM: base, cutM3: cut, fillM3: fill, netM3: cut - fill, areaM2: area, cellSizeM: cell, cells, missing };
+}

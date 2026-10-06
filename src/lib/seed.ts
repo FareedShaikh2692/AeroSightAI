@@ -3,6 +3,8 @@
 import type {
   Organization, User, Membership, ProjectMember, Project, Site, Asset, Drone, Pilot, Mission, MissionEvent,
   Media, Survey, Milestone, ProgressRecord, Inspection, Finding, Report, Notification, AuditLog, RoleKey, LngLat, MissionStatus,
+  NotificationPreference, NotificationRule, Webhook, WebhookDelivery, ApiKey, AiAnalysis, AiSuggestion, AiConversation,
+  InspectionTemplate, RetentionPolicy, LegalHold, Integration, BreakGlassSession, DataClass,
 } from "./types";
 import { sid, prng } from "./ids";
 import { hashPassword } from "./password";
@@ -17,7 +19,16 @@ export interface DataSet {
   missionEvents: MissionEvent[]; media: Media[]; surveys: Survey[]; milestones: Milestone[];
   progressRecords: ProgressRecord[]; inspections: Inspection[]; findings: Finding[]; reports: Report[];
   notifications: Notification[]; auditLogs: AuditLog[];
+  // Phase 2
+  notificationPreferences: NotificationPreference[]; notificationRules: NotificationRule[]; webhooks: Webhook[];
+  webhookDeliveries: WebhookDelivery[]; apiKeys: ApiKey[]; aiAnalyses: AiAnalysis[]; aiSuggestions: AiSuggestion[];
+  aiConversations: AiConversation[]; inspectionTemplates: InspectionTemplate[]; retentionPolicies: RetentionPolicy[];
+  legalHolds: LegalHold[]; integrations: Integration[]; breakGlassSessions: BreakGlassSession[];
 }
+
+export const DEFAULT_RETENTION: Record<DataClass, number> = {
+  raw_media: 1825, telemetry: 365, audit_logs: 365, notifications: 180, ai_conversations: 90, reports: 2555,
+};
 
 const DAY = 86_400_000;
 const iso = (t: number) => new Date(t).toISOString();
@@ -105,6 +116,8 @@ export function buildSeed(now = Date.now()): DataSet {
     organizations: [], users: [], memberships: [], projectMembers: [], projects: [], sites: [], assets: [], drones: [],
     pilots: [], missions: [], missionEvents: [], media: [], surveys: [], milestones: [], progressRecords: [],
     inspections: [], findings: [], reports: [], notifications: [], auditLogs: [],
+    notificationPreferences: [], notificationRules: [], webhooks: [], webhookDeliveries: [], apiKeys: [], aiAnalyses: [],
+    aiSuggestions: [], aiConversations: [], inspectionTemplates: [], retentionPolicies: [], legalHolds: [], integrations: [], breakGlassSessions: [],
   };
   const pw = hashPassword(DEMO_PASSWORD, Buffer.alloc(16, 42));
   const rnd = prng(20261006);
@@ -119,8 +132,10 @@ export function buildSeed(now = Date.now()): DataSet {
     ds.organizations.push({
       id: orgId, name: spec.name, slug: spec.slug, status: "active", country: spec.country, timezone: spec.timezone,
       region: spec.region, brandColor: spec.color, plan: spec.plan, createdAt: iso(today - 400 * DAY),
-      settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: spec.key === "atlas" },
+      settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: spec.key === "atlas", aiEnabled: true, fourEyesProgress: false },
+      aiCreditsUsed: 0, aiCreditsLimit: spec.plan === "enterprise" ? 50000 : 5000,
     });
+    for (const [dataClass, days] of Object.entries(DEFAULT_RETENTION)) ds.retentionPolicies.push({ organizationId: orgId, dataClass: dataClass as DataClass, retentionDays: days, updatedAt: iso(today - 400 * DAY) });
 
     const userByRole = {} as Record<RoleKey, string>;
     for (const role of ROLES) {
@@ -128,9 +143,19 @@ export function buildSeed(now = Date.now()): DataSet {
       userByRole[role] = id;
       const fullName = `${FIRST[nameIdx % FIRST.length]} ${LAST[(nameIdx * 7 + orgIndex) % LAST.length]}`;
       nameIdx++;
-      ds.users.push({ id, email: `${ROLE_EMAIL[role]}@${spec.domain}`, fullName, passwordHash: pw, mfaEnabled: role === "org_owner", lastLoginAt: iso(today - Math.floor(rnd() * 5) * DAY) });
+      ds.users.push({ id, email: `${ROLE_EMAIL[role]}@${spec.domain}`, fullName, passwordHash: pw, mfaEnabled: false, lastLoginAt: iso(today - Math.floor(rnd() * 5) * DAY) });
       ds.memberships.push({ id: sid(`mem:${spec.key}:${role}`), organizationId: orgId, userId: id, role, status: "active", joinedAt: iso(today - 380 * DAY) });
     }
+
+    // Inspection templates (INSPECTION-001)
+    const tplItems = (labels: string[]) => labels.map((label, k) => ({ id: `t${k}`, label, required: k < 4 }));
+    ([["Weekly structural walkdown", "Routine structural condition check.", INSPECTION_ITEMS],
+      ["Pre-pour check", "Formwork, rebar and embedment check before concrete pour.", ["Formwork dimensions and alignment checked", "Rebar size, spacing and cover verified", "Embedments and sleeves positioned", "Shoring and props inspected", "Pour approval signed by engineer"]],
+      ["Monthly safety audit", "General site safety audit.", ["Edge protection complete", "Scaffold tags current", "PPE compliance observed", "Fire extinguishers accessible", "Housekeeping acceptable", "Crane lift plans available"]],
+    ] as [string, string, string[]][]).forEach(([name, description, items], k) => {
+      ds.inspectionTemplates.push({ id: sid(`tpl:${spec.key}:${k}`), organizationId: orgId, groupId: sid(`tplg:${spec.key}:${k}`), name, description, version: 1,
+        status: "published", items: tplItems(items), createdBy: sid(`user:${spec.key}:project_manager`), createdAt: iso(today - 200 * DAY) });
+    });
 
     // Drones & pilots
     const pilotId = sid(`pilot:${spec.key}`);

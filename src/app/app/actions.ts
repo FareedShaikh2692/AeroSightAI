@@ -14,6 +14,9 @@ import { DEMO_PASSWORD } from "@/lib/seed";
 import type { MissionAction } from "@/lib/mission";
 import type { LngLat, RoleKey } from "@/lib/types";
 import { ROLES } from "@/lib/permissions";
+import { emit, membersWithRoles, missionEvent } from "@/lib/events";
+import { reportNarrative } from "@/lib/ai/features";
+import { AiUnavailableError } from "@/lib/ai/llm";
 
 export type ActionState = { error?: string | null; ok?: string | null; data?: unknown };
 
@@ -80,6 +83,9 @@ export async function createMissionAction(raw: string): Promise<ActionState> {
     const input = MissionInput.parse(JSON.parse(raw));
     const m = repo.createMission(ctx, { ...input, area: [...input.area, input.area[0]], droneId: input.droneId || undefined, pilotId: input.pilotId || undefined });
     await audit(ctx, "mission.created", "mission", m.id, { projectId: m.projectId, changes: { status: [null, m.status] } });
+    const pilotUser = db().pilots.find((p) => p.id === m.pilotId)?.userId;
+    if (pilotUser) emit({ key: "mission.assigned", orgId: ctx.orgId, projectId: m.projectId, entityType: "mission", entityId: m.id, title: "Mission assigned to you",
+      body: `${m.name} — ${new Date(m.scheduledStart).toUTCString().slice(0, 22)} UTC`, href: `/app/missions/${m.id}`, recipients: [pilotUser] });
     id = m.id;
   } catch (e) { return fail(e); }
   revalidatePath("/app/missions");
@@ -93,6 +99,7 @@ export async function missionTransitionAction(_: ActionState, f: FormData): Prom
     const action = str(f, "action") as MissionAction;
     const r = repo.transitionMission(ctx, id, action, { reason: str(f, "reason"), confirmPilotInCommand: f.get("confirm") === "on" });
     await audit(ctx, `mission.${action}`, "mission", id, { projectId: r.mission.projectId, changes: { status: [r.from, r.mission.status] } });
+    missionEvent(ctx.orgId, r.mission, action, str(f, "reason"));
   } catch (e) { return fail(e); }
   revalidatePath(`/app/missions/${id}`);
   revalidatePath("/app/live");
@@ -137,6 +144,9 @@ export async function recordProgressAction(_: ActionState, f: FormData): Promise
   try {
     const r = repo.recordProgress(ctx, { projectId: str(f, "projectId"), milestoneId: str(f, "milestoneId"), percentComplete: Number(str(f, "percent")), recordDate: str(f, "recordDate"), notes: str(f, "notes") });
     await audit(ctx, "progress.recorded", "progress_record", r.id, { projectId: r.projectId, changes: { percentComplete: [null, r.percentComplete], approvalStatus: [null, r.approvalStatus] } });
+    if (r.approvalStatus === "pending_approval") emit({ key: "progress.approval_requested", orgId: ctx.orgId, projectId: r.projectId, entityType: "progress_record", entityId: r.id,
+      title: "Progress awaiting approval", body: `${r.percentComplete}% recorded by ${repo.userName(ctx.userId)}`, href: `/app/progress?project=${r.projectId}`,
+      recipients: membersWithRoles(ctx.orgId, r.projectId, ["project_manager"], true).filter((u) => u !== ctx.userId) });
     revalidatePath("/app/progress");
     revalidatePath(`/app/projects/${r.projectId}`);
     return { ok: r.approvalStatus === "approved" ? "Progress recorded and approved." : "Progress recorded — awaiting approval." };
@@ -165,6 +175,10 @@ export async function inspectionTransitionAction(_: ActionState, f: FormData): P
     const action = str(f, "action") as "start" | "submit" | "approve" | "reject" | "close";
     const i = repo.transitionInspection(ctx, id, action, str(f, "comment"));
     await audit(ctx, `inspection.${action}`, "inspection", id, { projectId: i.projectId, changes: { status: [null, i.status] } });
+    const ib = { orgId: ctx.orgId, projectId: i.projectId, entityType: "inspection", entityId: i.id, href: `/app/inspections/${i.id}` };
+    if (action === "submit" && i.reviewerId) emit({ ...ib, key: "inspection.submitted", title: "Inspection awaiting your review", body: i.title, recipients: [i.reviewerId] });
+    if (action === "approve" && i.assigneeId) emit({ ...ib, key: "inspection.approved", title: "Inspection approved", body: i.title, recipients: [i.assigneeId] });
+    if (action === "reject" && i.assigneeId) emit({ ...ib, key: "inspection.rejected", severity: "warning", title: "Inspection returned", body: `${i.title} — ${str(f, "comment")}`, recipients: [i.assigneeId] });
   } catch (e) { return fail(e); }
   revalidatePath(`/app/inspections/${id}`);
   return { ok: "Updated." };
@@ -177,11 +191,9 @@ export async function createFindingAction(_: ActionState, f: FormData): Promise<
     const sev = z.enum(["low", "medium", "high", "critical"]).parse(str(f, "severity"));
     const fd = repo.createFinding(ctx, id, { title: str(f, "title"), description: str(f, "description"), category: str(f, "category") || "quality", severity: sev, assetId: str(f, "assetId") || undefined });
     await audit(ctx, "finding.created", "finding", fd.id, { projectId: fd.projectId, changes: { severity: [null, fd.severity] } });
-    if (sev === "critical" || sev === "high") {
-      const recipients = db().projectMembers.filter((m) => m.projectId === fd.projectId && ["site_manager", "project_manager", "engineer"].includes(m.role));
-      for (const r of recipients) db().notifications.push({ id: newId(), organizationId: ctx.orgId, userId: r.userId, eventKey: "finding.created", severity: sev === "critical" ? "critical" : "warning",
-        title: `${sev === "critical" ? "Critical" : "High"} finding raised`, body: fd.title, href: `/app/inspections/${id}`, createdAt: new Date().toISOString(), projectId: fd.projectId });
-    }
+    emit({ key: "finding.created", orgId: ctx.orgId, projectId: fd.projectId, entityType: "finding", entityId: fd.id, href: `/app/inspections/${id}`,
+      severity: sev === "critical" ? "critical" : sev === "high" ? "warning" : "info", title: `${sev[0].toUpperCase()}${sev.slice(1)} finding raised`, body: fd.title,
+      recipients: sev === "critical" || sev === "high" ? membersWithRoles(ctx.orgId, fd.projectId, ["site_manager", "project_manager", "engineer"]) : [] });
   } catch (e) { return fail(e); }
   revalidatePath(`/app/inspections/${id}`);
   return { ok: "Finding created." };
@@ -202,6 +214,15 @@ export async function generateReportAction(_: ActionState, f: FormData): Promise
   let id: string;
   try {
     const r = repo.generateReport(ctx, { projectId: str(f, "projectId"), periodStart: str(f, "periodStart"), periodEnd: str(f, "periodEnd"), sections: f.getAll("sections").map(String) });
+    if (f.get("aiNarrative") === "on") {
+      try {
+        const n = await reportNarrative(ctx, r.projectId, r.periodStart, r.periodEnd); // AI-008
+        r.narrative = { text: n.text, engine: n.engine, model: n.model };
+        r.aiAssisted = n.engine === "claude";
+      } catch (e) {
+        if (!(e instanceof AiUnavailableError || e instanceof HttpError)) throw e; // report still generates without the narrative
+      }
+    }
     await audit(ctx, "report.generated", "report", r.id, { projectId: r.projectId });
     id = r.id;
   } catch (e) { return fail(e); }
@@ -213,6 +234,8 @@ export async function publishReportAction(f: FormData) {
   const ctx = await requireContext();
   const r = repo.publishReport(ctx, str(f, "id"));
   await audit(ctx, "report.published", "report", r.id, { projectId: r.projectId, changes: { status: ["ready", "published"] } });
+  emit({ key: "report.published", orgId: ctx.orgId, projectId: r.projectId, entityType: "report", entityId: r.id, href: `/app/reports/${r.id}`, title: "New report published", body: r.title,
+    recipients: membersWithRoles(ctx.orgId, r.projectId, ["viewer", "project_manager", "site_manager"]) });
   revalidatePath(`/app/reports/${r.id}`);
 }
 
@@ -265,4 +288,32 @@ export async function memberUpdateAction(f: FormData) {
   if (status === "active" || status === "deactivated") m.status = status;
   await audit(ctx, before.status !== m.status ? `member.${m.status}` : "member.role_changed", "user", m.userId, { changes: { role: [before.role, m.role], status: [before.status, m.status] } });
   revalidatePath("/app/team");
+}
+
+// ---------- Inspections v2 ----------
+export async function saveTemplateAction(_: ActionState, f: FormData): Promise<ActionState> {
+  const ctx = await requireContext();
+  try {
+    const labels = str(f, "items").split("\n");
+    const items = labels.map((l) => ({ label: l.replace(/^\*\s*/, ""), required: l.trim().startsWith("*") }));
+    const t = repo.saveTemplate(ctx, { groupId: str(f, "groupId") || undefined, name: str(f, "name"), description: str(f, "description"), items });
+    await audit(ctx, t.version > 1 ? "inspection_template.versioned" : "inspection_template.created", "inspection_template", t.id, { changes: { version: [t.version - 1 || null, t.version] } });
+  } catch (e) { return fail(e); }
+  revalidatePath("/app/inspections");
+  return { ok: "Template published." };
+}
+
+export async function createInspectionAction(_: ActionState, f: FormData): Promise<ActionState> {
+  const ctx = await requireContext();
+  let id: string;
+  try {
+    const i = repo.createInspection(ctx, { siteId: str(f, "siteId"), templateId: str(f, "templateId"), title: str(f, "title"), type: str(f, "type") || "routine",
+      assetId: str(f, "assetId") || undefined, assigneeId: str(f, "assigneeId"), reviewerId: str(f, "reviewerId"), dueDate: str(f, "dueDate") });
+    await audit(ctx, "inspection.scheduled", "inspection", i.id, { projectId: i.projectId, changes: { assignee: [null, repo.userName(i.assigneeId)] } });
+    emit({ key: "inspection.assigned", orgId: ctx.orgId, projectId: i.projectId, entityType: "inspection", entityId: i.id, href: `/app/inspections/${i.id}`,
+      title: "Inspection assigned to you", body: `${i.title} — due ${i.dueDate}`, recipients: [i.assigneeId!] });
+    id = i.id;
+  } catch (e) { return fail(e); }
+  revalidatePath("/app/inspections");
+  redirect(`/app/inspections/${id}`);
 }

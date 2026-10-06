@@ -6,7 +6,7 @@ export async function middleware(req: NextRequest) {
   const claims = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
   const { pathname } = req.nextUrl;
   const isAdmin = pathname.startsWith("/admin");
-  if (!claims || (isAdmin && !claims.staff) || (!isAdmin && claims.staff)) {
+  if (!claims || (isAdmin && !claims.staff)) { // staff may enter /app only with an active break-glass session (checked server-side)
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.search = isAdmin ? "?staff=1" : `?next=${encodeURIComponent(pathname)}`;

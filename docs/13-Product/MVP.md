@@ -5,7 +5,7 @@
 | **Document** | MVP Scope |
 | **Project** | AeroSight AI |
 | **Doc ID** | ASAI-DOC-34 |
-| **Version** | 0.2 |
+| **Version** | 0.3 |
 | **Status** | Draft |
 | **Author** | AeroSight AI Product |
 | **Reviewer** | _Pending — Product Owner, Tech Lead_ |
@@ -17,6 +17,7 @@
 |---|---|---|---|
 | 0.1 | 2026-10-06 | Product | Initial MVP definition and implementation status register |
 | 0.2 | 2026-10-06 | Engineering | Status register updated for the Phase 1 demo build |
+| 0.3 | 2026-10-06 | Engineering | Phase 2 capabilities added to the demo build |
 
 ---
 
@@ -83,7 +84,7 @@ Legend: see [README §2.1](../README.md#21-implementation-status-legend).
 
 | Capability | Phase | Target status at phase release | **Current status** | Last updated | Evidence |
 |---|---|---|---|---|---|
-| Authentication & 2FA | 1 | Implemented | Prototype — password sign-in, lockout, signed sessions (no 2FA enrollment yet) | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Authentication & 2FA | 1 | Implemented | Prototype — password + TOTP 2FA (QR, recovery codes, replay protection, org enforcement), lockout, signed sessions | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Organizations & onboarding | 1 | Implemented | Prototype — signup creates org + owner (in-memory) | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Tenant isolation (RLS + suite) | 1 | Implemented | Prototype — PolicyEngine + repository scoping, tests (no RLS: in-memory store) | 2026-10-06 | Demo build (`src/`), `npm test` |
 | RBAC & custom roles | 1 | Implemented | Prototype — 9 system roles × 75 permissions enforced server-side (no custom roles) | 2026-10-06 | Demo build (`src/`), `npm test` |
@@ -91,33 +92,37 @@ Legend: see [README §2.1](../README.md#21-implementation-status-legend).
 | Sites & assets | 1 | Implemented | Prototype — boundary drawing + validation; assets seeded | 2026-10-06 | Demo build (`src/`), `npm test` |
 | 2D / satellite / terrain maps | 1 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Orthomosaic display (uploaded COG) | 1 | Implemented | Planned | 2026-10-06 | — |
-| Photogrammetry processing | 2 | Integration Required | Planned | 2026-10-06 | — |
+| Photogrammetry processing | 2 | Integration Required | Integration Required — NodeODM connector with live /info connection test | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Drone registry & pilots | 1 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Mission planning & lifecycle | 1 | Implemented (logical execution) | Prototype — server-validated planning, approval, checklist, logical start/stop, KML export | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Mission upload to provider | 2 | Integration Required | Planned | 2026-10-06 | — |
 | Mission control commands | 3 | Integration Required (verified adapters only) | Planned | 2026-10-06 | — |
 | Telemetry — simulator | 1 | Simulated | Simulated — SSE stream with alerts | 2026-10-06 | Demo build (`src/`), `npm test` |
-| Telemetry — real provider | 2 | Integration Required → Implemented | Planned | 2026-10-06 | — |
+| Telemetry — real provider | 2 | Integration Required → Implemented | Integration Required — DJI Cloud API connector config + gateway check; needs DJI licence & devices | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Recorded video | 1 | Implemented | Planned | 2026-10-06 | — |
-| Live video | 2 | Integration Required | Planned | 2026-10-06 | — |
+| Live video | 2 | Integration Required | Integration Required | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Media library | 1 | Implemented | Prototype — seeded items with synthetic previews; uploads disabled | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Surveys | 1 | Implemented | Prototype — records + QA metadata only | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Progress (manual, milestones) | 1 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
-| AI progress analysis | 2 | Prototype | Planned | 2026-10-06 | — |
-| AI change detection | 2 | Prototype | Planned | 2026-10-06 | — |
-| AI defect detection | 2 | Prototype | Planned | 2026-10-06 | — |
-| AI report narrative | 2 | Prototype | Planned | 2026-10-06 | — |
-| AI assistant | 2 | Prototype | Planned | 2026-10-06 | — |
-| Inspections | 2 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
+| AI progress analysis | 2 | Prototype | Prototype — Claude (when ANTHROPIC_API_KEY set) or heuristic; human review queue | 2026-10-06 | Demo build (`src/`), `npm test` |
+| AI change detection | 2 | Prototype | Integration Required — needs vision model + imagery storage | 2026-10-06 | Demo build (`src/`), `npm test` |
+| AI defect detection | 2 | Prototype | Integration Required — needs vision model + imagery storage | 2026-10-06 | Demo build (`src/`), `npm test` |
+| AI report narrative | 2 | Prototype | Prototype — Claude with number verification, template fallback | 2026-10-06 | Demo build (`src/`), `npm test` |
+| AI assistant | 2 | Prototype | Prototype — Claude tool loop, permission-scoped tools (needs ANTHROPIC_API_KEY) | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Inspections | 2 | Implemented | Prototype — templates with versioning, scheduling, checklist, findings, approvals | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Reports (PDF) | 1 | Implemented | Prototype — generate/publish; PDF via browser print | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Notifications (core) | 1 | Implemented | Prototype — in-app only | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Audit logs | 1 | Implemented | Prototype — hash-chained, CSV export | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Analytics | 2 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
-| Integrations (webhooks, API keys) | 2 | Implemented | Planned | 2026-10-06 | — |
+| Integrations (webhooks, API keys) | 2 | Implemented | Prototype — signed webhooks + delivery log, scoped API keys, Slack/Teams routing, SSRF guard | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Integrations (Procore, ACC) | 3 | Integration Required | Planned | 2026-10-06 | — |
 | 3D Digital Twin | 3 | Implemented (Prototype viewer in 2) | Prototype — extruded assets over terrain (no 3D Tiles) | 2026-10-06 | Demo build (`src/`), `npm test` |
 | SSO / SCIM | 3 | Implemented | Planned | 2026-10-06 | — |
 | Billing & usage | 1 | Implemented | Planned | 2026-10-06 | — |
+| Notifications v2 (preferences, Slack/Teams, digest, dedupe) | 2 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`) |
+| Retention policies, legal holds, DSAR & org export | 2 | Implemented | Prototype | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Break-glass support access | 2 | Implemented | Prototype — read-only, time-boxed, audited, Owner notified | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Advanced mapping (3D terrain, elevation profile, volumes) | 2 | Implemented | Prototype — real public DEM (~30 m); survey DSM needs processing | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Platform admin | 1 | Implemented | Prototype — tenant metadata overview | 2026-10-06 | Demo build (`src/`), `npm test` |
 
 "Evidence" links to the PR, test report or release where the status changed.

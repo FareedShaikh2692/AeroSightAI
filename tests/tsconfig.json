@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./tests/stubs/server-only.ts"],
+      "next/headers": ["./tests/stubs/next-headers.ts"],
+      "next/navigation": ["./tests/stubs/next-navigation.ts"],
+      "next/server": ["./tests/stubs/next-server.ts"],
+      "next/cache": ["./tests/stubs/next-cache.ts"]
+    }
+  },
+  "include": ["./**/*.ts", "../src/**/*.ts"]
+}

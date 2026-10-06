@@ -16,6 +16,9 @@ export async function getContext(): Promise<AuthContext | null> {
   if (!user) return null;
   if (claims.staff) {
     if (!user.isPlatformStaff) return null;
+    // ADMIN-009: an active break-glass session grants time-boxed, read-only access to one organization.
+    const bg = db().breakGlassSessions.find((b) => b.staffUserId === user.id && !b.endedEarlyAt && Date.parse(b.endsAt) > Date.now());
+    if (bg) return { userId: user.id, orgId: bg.organizationId, role: "org_admin", isPlatformStaff: true, sessionId: claims.sid, breakGlass: { sessionId: bg.id, endsAt: bg.endsAt } };
     return { userId: user.id, orgId: "", role: "viewer", isPlatformStaff: true, sessionId: claims.sid };
   }
   const org = db().organizations.find((o) => o.id === claims.org);
@@ -26,7 +29,7 @@ export async function getContext(): Promise<AuthContext | null> {
 
 export async function requireContext(): Promise<AuthContext> {
   const ctx = await getContext();
-  if (!ctx || ctx.isPlatformStaff) redirect("/login");
+  if (!ctx || (ctx.isPlatformStaff && !ctx.breakGlass)) redirect(ctx?.isPlatformStaff ? "/admin" : "/login");
   return ctx;
 }
 

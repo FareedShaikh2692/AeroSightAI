@@ -38,3 +38,19 @@ export async function verifySession(token: string | undefined): Promise<SessionC
     return null;
   }
 }
+
+// Intermediate "password verified, 2FA pending" token (AUTH-010), valid 5 minutes, separate audience.
+export const MFA_COOKIE = "asai_mfa";
+export async function signMfaPending(userId: string, orgId: string, next: string): Promise<string> {
+  return new SignJWT({ org: orgId, next }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuer("aerosight")
+    .setAudience("aerosight-mfa").setIssuedAt().setExpirationTime("300s").sign(secret());
+}
+export async function verifyMfaPending(token: string | undefined): Promise<{ sub: string; org: string; next: string } | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret(), { issuer: "aerosight", audience: "aerosight-mfa", algorithms: ["HS256"] });
+    return { sub: String(payload.sub), org: String(payload.org), next: String(payload.next ?? "") };
+  } catch {
+    return null;
+  }
+}

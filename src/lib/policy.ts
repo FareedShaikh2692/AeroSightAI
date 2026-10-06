@@ -25,14 +25,22 @@ export function projectRole(ctx: AuthContext, projectId: UUID) {
 
 export function accessibleProjectIds(ctx: AuthContext): Set<UUID> {
   const projects = db().projects.filter((p) => p.organizationId === ctx.orgId);
-  if (isOrgWide(ctx)) return new Set(projects.map((p) => p.id));
-  return new Set(db().projectMembers.filter((m) => m.organizationId === ctx.orgId && m.userId === ctx.userId).map((m) => m.projectId));
+  const restrict = (s: Set<UUID>) => (ctx.apiKey?.projectIds ? new Set([...s].filter((x) => ctx.apiKey!.projectIds!.includes(x))) : s);
+  if (isOrgWide(ctx) || ctx.breakGlass) return restrict(new Set(projects.map((p) => p.id)));
+  return restrict(new Set(db().projectMembers.filter((m) => m.organizationId === ctx.orgId && m.userId === ctx.userId).map((m) => m.projectId)));
 }
 
 /** Can the user perform `perm` (optionally on resource `res`)? Tenant guard first, then RBAC, then project scope. */
+const READ_ONLY = (p: Permission) => /:(read|view)$/.test(p) || p === "telemetry:read";
+
 export function can(ctx: AuthContext, perm: Permission, res?: Scoped): boolean {
-  if (ctx.isPlatformStaff) return false; // staff have no tenant permissions (break-glass not in demo)
+  if (ctx.isPlatformStaff && !ctx.breakGlass) return false; // staff have no tenant permissions
+  if (ctx.breakGlass && (!READ_ONLY(perm) || Date.parse(ctx.breakGlass.endsAt) < Date.now())) return false; // ADMIN-009: read-only, time-boxed
   if (res && res.organizationId !== ctx.orgId) return false;
+  if (ctx.apiKey) {
+    if (!ctx.apiKey.permissions.includes(perm)) return false;
+    if (ctx.apiKey.projectIds && res?.projectId && !ctx.apiKey.projectIds.includes(res.projectId)) return false;
+  }
   const orgPerms = ROLE_PERMISSIONS[ctx.role];
   if (isOrgWide(ctx) || ORG_SCOPED.has(perm) || !res?.projectId) return orgPerms.has(perm);
   const pRole = projectRole(ctx, res.projectId);

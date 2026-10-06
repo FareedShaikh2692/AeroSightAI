@@ -21,6 +21,7 @@ export function GenerateReport({ projects, initial }: { projects: { id: string; 
       <fieldset><legend className="label">Sections</legend>
         <div className="grid grid-cols-2 gap-1">{SECTIONS.map(([k, l]) => <label key={k} className="flex items-center gap-2 text-xs"><input type="checkbox" name="sections" value={k} defaultChecked={k !== "missions"} />{l}</label>)}</div>
       </fieldset>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="aiNarrative" /> AI-assisted executive summary (Beta)</label>
       <button className="btn btn-primary w-full justify-center" disabled={pending}>{pending ? "Generating…" : "Generate"}</button>
     </form>
   );

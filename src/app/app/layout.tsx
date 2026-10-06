@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireContext } from "@/lib/auth";
 import { currentOrg, currentUser, listNotifications, listMissions } from "@/lib/repo";
 import { ROLE_LABELS, roleHas, type Permission } from "@/lib/permissions";
 import { LogoMark } from "@/components/Logo";
 import { logoutAction } from "../(auth)/actions";
+import { endBreakGlassAction } from "../admin/actions";
 import { SideNav } from "./SideNav";
 import { Bell, LogOut } from "lucide-react";
 
@@ -21,6 +23,8 @@ const NAV: { group: string; items: { href: string; label: string; icon: string; 
     { href: "/app/media", label: "Media", icon: "Images", perm: "media:read" }, { href: "/app/surveys", label: "Surveys", icon: "Mountain", perm: "map:read" },
     { href: "/app/inspections", label: "Inspections", icon: "ClipboardList", perm: "inspection:read" }, { href: "/app/progress", label: "Progress", icon: "TrendingUp", perm: "progress:read" },
     { href: "/app/reports", label: "Reports", icon: "FileText", perm: "report:read" }] },
+  { group: "AI", items: [
+    { href: "/app/ai", label: "AI Insights", icon: "Sparkles", perm: "ai:analyze" }, { href: "/app/assistant", label: "Assistant", icon: "MessageSquare", perm: "ai:assistant" }] },
   { group: "Organization", items: [
     { href: "/app/team", label: "Team", icon: "Users", perm: "org:read" }, { href: "/app/roles", label: "Roles", icon: "KeyRound", perm: "org:read" },
     { href: "/app/integrations", label: "Integrations", icon: "Plug", perm: "integration:manage" }, { href: "/app/billing", label: "Billing", icon: "CreditCard", perm: "billing:manage" },
@@ -31,6 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const ctx = await requireContext();
   const org = currentOrg(ctx);
   const user = currentUser(ctx);
+  if (!ctx.breakGlass && org.settings.mfaRequired && !user.mfaSecret) redirect("/mfa-setup"); // AUTH-011
   const unread = listNotifications(ctx).filter((n) => !n.readAt).length;
   const live = roleHas(ctx.role, "mission:read") ? listMissions(ctx).filter((m) => m.status === "in_progress").length : 0;
   const nav = NAV.map((g) => ({ group: g.group, items: g.items.filter((i) => !i.perm || roleHas(ctx.role, i.perm)) })).filter((g) => g.items.length);
@@ -68,6 +73,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <form action={logoutAction}><button className="btn btn-ghost px-2" aria-label="Sign out" title="Sign out"><LogOut size={18} /></button></form>
           </div>
         </header>
+        {ctx.breakGlass && (
+          <div className="no-print flex flex-wrap items-center justify-between gap-2 bg-bad/15 px-4 py-2 text-sm text-bad sm:px-6">
+            <span><b>Break-glass session</b> — read-only access to {org.name} until {ctx.breakGlass.endsAt.slice(11, 16)} UTC. Every access is visible to the customer.</span>
+            <form action={endBreakGlassAction}><button className="btn btn-danger h-8 text-xs">End access</button></form>
+          </div>
+        )}
         <nav className="no-print flex gap-1 overflow-x-auto border-b border-line px-3 py-2 md:hidden" aria-label="Mobile">
           {nav.flatMap((g) => g.items).map((i) => <Link key={i.href} href={i.href} className="whitespace-nowrap rounded-md px-2.5 py-1 text-xs text-ink-2 hover:bg-raised">{i.label}</Link>)}
         </nav>

@@ -174,6 +174,16 @@
 | `FEATURE_FLAGS_PROVIDER` | `db` | OpenFeature provider |
 | `FEATURE_FLAGS_DEFAULTS` | `{"twin.viewer":false,"ai.progress_analysis":false}` | Bootstrap defaults (JSON) |
 
+### 2.11 Demo build (`src/`) — variables actually read today
+
+| Variable | Required | Description |
+|---|---|---|
+| `AUTH_SECRET` 🔒 | ✓ (production) | ≥ 32 chars. Signs session/2FA cookies and derives the AES-256-GCM key for stored secrets. |
+| `ANTHROPIC_API_KEY` 🔒 | Optional | Enables Claude for AI progress analysis, report narratives and the assistant. Without it AI runs in heuristic mode and the assistant is disabled. |
+| `AI_MODEL` | Optional | Claude model ID (default `claude-opus-5-5`). |
+| `CRON_SECRET` 🔒 | ✓ for cron | Authenticates `/api/cron/daily` (Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`). The route refuses to run without it. |
+| `PUBLIC_APP_URL` | Optional | Base URL for links in Slack/Teams/webhook payloads. Defaults to the Vercel production URL. |
+
 ## 3. Per-Environment Differences
 
 | Setting | Local | Preview/Dev | Staging | Production |

@@ -403,3 +403,47 @@ export function listAudit(ctx: AuthContext) {
 }
 
 export { audit };
+
+// ---------- Inspections v2: templates & scheduling (INSPECTION-001…004) ----------
+export function listTemplates(ctx: AuthContext) {
+  assertCan(ctx, "inspection:read");
+  return db().inspectionTemplates.filter((t) => t.organizationId === ctx.orgId);
+}
+
+/** Creates a template, or a new version of an existing template group; earlier versions are retired, inspections keep their snapshot. */
+export function saveTemplate(ctx: AuthContext, input: { groupId?: UUID; name: string; description: string; items: { label: string; required: boolean }[] }) {
+  assertCan(ctx, "inspection:template_manage");
+  const items = input.items.map((i) => ({ label: i.label.trim(), required: i.required })).filter((i) => i.label);
+  if (!input.name.trim()) throw new HttpError(422, "VALIDATION_ERROR", "Template name is required.");
+  if (items.length < 1 || items.length > 60) throw new HttpError(422, "VALIDATION_ERROR", "Add between 1 and 60 checklist items.");
+  const prev = input.groupId ? db().inspectionTemplates.filter((t) => t.organizationId === ctx.orgId && t.groupId === input.groupId) : [];
+  if (input.groupId && !prev.length) throw notFound();
+  prev.forEach((t) => { if (t.status === "published") t.status = "retired"; });
+  const t = { id: newId(), organizationId: ctx.orgId, groupId: input.groupId ?? newId(), name: input.name.trim(), description: input.description.trim(),
+    version: prev.length ? Math.max(...prev.map((p) => p.version)) + 1 : 1, status: "published" as const,
+    items: items.map((i, k) => ({ id: `t${k}`, ...i })), createdBy: ctx.userId, createdAt: new Date().toISOString() };
+  db().inspectionTemplates.push(t);
+  return t;
+}
+
+export function createInspection(ctx: AuthContext, input: { siteId: UUID; templateId: UUID; title: string; type: string; assetId?: UUID; assigneeId: UUID; reviewerId: UUID; dueDate: string }) {
+  const site = getSite(ctx, input.siteId);
+  if (!site) throw notFound();
+  assertCan(ctx, "inspection:create", site);
+  assertCan(ctx, "inspection:assign", site);
+  const tpl = db().inspectionTemplates.find((t) => t.id === input.templateId && t.organizationId === ctx.orgId && t.status === "published");
+  if (!tpl) throw new HttpError(422, "VALIDATION_ERROR", "Choose a published template.");
+  if (input.assigneeId === input.reviewerId) throw new HttpError(422, "VALIDATION_ERROR", "The reviewer must be a different person from the assignee (no self-approval).");
+  const member = (uid: UUID) => db().memberships.some((m) => m.organizationId === ctx.orgId && m.userId === uid && m.status === "active");
+  if (!member(input.assigneeId) || !member(input.reviewerId)) throw new HttpError(422, "VALIDATION_ERROR", "Assignee and reviewer must be active members.");
+  const reviewerCtx = { userId: input.reviewerId, orgId: ctx.orgId, role: db().memberships.find((m) => m.organizationId === ctx.orgId && m.userId === input.reviewerId)!.role, isPlatformStaff: false, sessionId: "check" };
+  if (!can(reviewerCtx, "inspection:approve", site)) throw new HttpError(422, "VALIDATION_ERROR", "The reviewer needs permission to approve inspections on this project.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new HttpError(422, "VALIDATION_ERROR", "Choose a due date.");
+  const asset = input.assetId ? listAssets(ctx, site.id).find((a) => a.id === input.assetId) : undefined;
+  const i: Inspection = { id: newId(), organizationId: ctx.orgId, projectId: site.projectId, siteId: site.id, assetId: asset?.id,
+    code: `INS-${String(40 + db().inspections.filter((x) => x.organizationId === ctx.orgId).length).padStart(6, "0")}`,
+    title: input.title.trim() || tpl.name, type: input.type, status: "scheduled", assigneeId: input.assigneeId, reviewerId: input.reviewerId, dueDate: input.dueDate,
+    checklist: tpl.items.map((it) => ({ id: it.id, label: it.label, required: it.required })) }; // snapshot (INSPECTION-002)
+  db().inspections.push(i);
+  return i;
+}

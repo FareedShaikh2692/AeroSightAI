@@ -15,7 +15,8 @@ export default async function Inspections() {
   const today = new Date().toISOString().slice(0, 10);
   return (
     <>
-      <PageHeader eyebrow="Data" title="Inspections" subtitle="Checklists, findings and approvals." />
+      <PageHeader eyebrow="Data" title="Inspections" subtitle="Checklists, findings and approvals."
+        actions={<><Link href="/app/inspections/templates" className="btn btn-secondary">Templates</Link>{can(ctx, "inspection:assign") && <Link href="/app/inspections/new" className="btn btn-primary">Schedule inspection</Link>}</>} />
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi label="Open findings" value={open.length} />
         <Kpi label="Critical / high" value={open.filter((f) => f.severity === "critical" || f.severity === "high").length} tone="bad" />

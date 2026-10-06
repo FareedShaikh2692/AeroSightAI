@@ -10,8 +10,8 @@ import { db } from "@/lib/store";
 export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; staff?: string }> }) {
-  const { next } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; staff?: string; mfa?: string }> }) {
+  const { next, mfa } = await searchParams;
   const data = db();
   const personas = data.organizations.filter((o) => o.slug === "atlas" || o.slug === "borealis").map((o) => ({
     org: o,
@@ -24,7 +24,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <Logo />
           <h1 className="mt-10 text-2xl font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-ink-2">New here? <Link href="/signup" className="text-accent hover:underline">Start a free trial</Link></p>
-          <LoginForm next={next ?? ""} />
+          <LoginForm next={next ?? ""} notice={mfa ? "This account has two-factor authentication enabled. Sign in with the password and your authenticator code." : undefined} />
         </div>
       </div>
       <aside className="border-l border-line bg-surface/60 px-6 py-12 sm:px-12">

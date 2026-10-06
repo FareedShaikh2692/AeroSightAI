@@ -13,13 +13,15 @@ export type OrgStatus = "active" | "read_only" | "suspended" | "pending_deletion
 export interface Organization {
   id: UUID; name: string; slug: string; status: OrgStatus; country: string;
   timezone: string; region: string; brandColor: string; plan: "starter" | "professional" | "enterprise";
-  settings: { mfaRequired: boolean; externalSharing: boolean; missionApprovalRequired: boolean };
+  settings: { mfaRequired: boolean; externalSharing: boolean; missionApprovalRequired: boolean; aiEnabled: boolean; fourEyesProgress: boolean };
+  aiCreditsUsed: number; aiCreditsLimit: number;
   createdAt: string;
 }
 
 export interface User {
   id: UUID; email: string; fullName: string; passwordHash: string;
   isPlatformStaff?: boolean; mfaEnabled: boolean; lastLoginAt?: string;
+  mfaSecret?: string; mfaPendingSecret?: string; mfaLastStep?: number; recoveryCodeHashes?: string[];
 }
 
 export interface Membership {
@@ -128,11 +130,13 @@ export interface Report {
   id: UUID; organizationId: UUID; projectId: UUID; title: string; type: "progress" | "survey" | "mission" | "inspection";
   status: "ready" | "published"; version: number; periodStart: string; periodEnd: string;
   sections: string[]; generatedBy: UUID; generatedAt: string; aiAssisted: boolean;
+  narrative?: { text: string; engine: "claude" | "heuristic"; model: string };
 }
 
 export interface Notification {
   id: UUID; organizationId: UUID; userId: UUID; eventKey: string; severity: "info" | "warning" | "critical";
   title: string; body: string; href?: string; readAt?: string; createdAt: string; projectId?: UUID;
+  dedupeKey?: string; occurrences?: number; digest?: boolean;
 }
 
 export interface AuditLog {
@@ -143,4 +147,70 @@ export interface AuditLog {
 
 export interface AuthContext {
   userId: UUID; orgId: UUID; role: RoleKey; isPlatformStaff: boolean; sessionId: string;
+  /** Set when the request is authenticated with an API key: the key's permission subset and optional project list. */
+  apiKey?: { id: UUID; permissions: string[]; projectIds: UUID[] | null };
+  /** Set during platform break-glass: read-only access to this org. */
+  breakGlass?: { sessionId: UUID; endsAt: string };
+}
+
+// ---------------------------------------------------------------- Phase 2
+
+export type NotificationCategory = "missions" | "telemetry" | "inspections" | "progress" | "reports" | "ai" | "fleet" | "security" | "billing";
+export interface NotificationPreference { organizationId: UUID; userId: UUID; category: NotificationCategory; inApp: boolean; email: boolean; digest: boolean }
+
+export interface NotificationRule {
+  id: UUID; organizationId: UUID; name: string; channel: "slack" | "teams"; webhookUrlEnc: string; webhookUrlHint: string;
+  categories: NotificationCategory[]; minSeverity: "info" | "warning" | "critical"; projectIds: UUID[]; active: boolean;
+  lastStatus?: string; lastSentAt?: string; consecutiveFailures: number; createdAt: string;
+}
+
+export interface Webhook {
+  id: UUID; organizationId: UUID; url: string; secretEnc: string; eventTypes: string[]; active: boolean;
+  consecutiveFailures: number; disabledReason?: string; createdAt: string; createdBy: UUID;
+}
+export interface WebhookDelivery {
+  id: UUID; organizationId: UUID; webhookId: UUID; eventId: UUID; eventType: string; attempt: number;
+  statusCode?: number; durationMs?: number; error?: string; deliveredAt: string; payload: string;
+}
+
+export interface ApiKey {
+  id: UUID; organizationId: UUID; name: string; prefix: string; keyHash: string; permissions: string[];
+  projectIds: UUID[] | null; expiresAt: string; lastUsedAt?: string; revokedAt?: string; createdBy: UUID; createdAt: string;
+}
+
+export type AiAnalysisType = "progress" | "report_narrative" | "change_detection" | "defect_detection";
+export interface AiAnalysis {
+  id: UUID; organizationId: UUID; projectId: UUID; siteId?: UUID; type: AiAnalysisType;
+  status: "queued" | "running" | "completed" | "failed"; requestedBy: UUID; engine: "claude" | "heuristic";
+  modelId?: string; promptVersion: string; input: Record<string, unknown>; output?: Record<string, unknown>;
+  confidence?: number; error?: string; creditsUsed: number; createdAt: string; completedAt?: string;
+  reviewStatus: "pending" | "accepted" | "partially_accepted" | "rejected";
+}
+export interface AiSuggestion {
+  id: UUID; organizationId: UUID; projectId: UUID; analysisId: UUID; kind: "progress";
+  payload: { milestoneId: UUID; milestoneName: string; currentPercent: number; proposedPercent: number; rationale: string };
+  confidence: number; decision: "pending" | "accepted" | "edited" | "rejected"; decidedBy?: UUID; decidedAt?: string;
+  finalPercent?: number; reason?: string;
+}
+export interface AiMessage { role: "user" | "assistant"; content: string; citations?: { label: string; href: string }[]; at: string }
+export interface AiConversation { id: UUID; organizationId: UUID; userId: UUID; title: string; messages: AiMessage[]; createdAt: string; updatedAt: string }
+
+export interface InspectionTemplate {
+  id: UUID; organizationId: UUID; groupId: UUID; name: string; description: string; version: number;
+  status: "draft" | "published" | "retired"; items: { id: string; label: string; required: boolean }[];
+  createdBy: UUID; createdAt: string;
+}
+
+export type DataClass = "raw_media" | "telemetry" | "audit_logs" | "notifications" | "ai_conversations" | "reports";
+export interface RetentionPolicy { organizationId: UUID; dataClass: DataClass; retentionDays: number; updatedAt: string; updatedBy?: UUID }
+export interface LegalHold { id: UUID; organizationId: UUID; projectId?: UUID; reason: string; placedBy: UUID; placedAt: string; releasedAt?: string; releasedBy?: UUID }
+
+export interface Integration {
+  id: UUID; organizationId: UUID; provider: "dji_cloud" | "nodeodm"; name: string; status: "connected" | "error" | "pending";
+  config: Record<string, string>; secretEnc?: string; lastCheckedAt?: string; lastError?: string; createdAt: string;
+}
+
+export interface BreakGlassSession {
+  id: UUID; staffUserId: UUID; organizationId: UUID; ticketRef: string; justification: string;
+  startsAt: string; endsAt: string; endedEarlyAt?: string;
 }

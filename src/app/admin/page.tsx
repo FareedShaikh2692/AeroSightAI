@@ -1,6 +1,7 @@
 import { db, store, verifyAuditChain } from "@/lib/store";
 import { PageHeader, Card, Kpi, StatusBadge, Badge } from "@/components/ui";
-import { fmtBytes, fmtDate } from "@/lib/format";
+import { fmtBytes, fmtDate, fmtDateTime } from "@/lib/format";
+import { BreakGlassForm } from "./BreakGlassForm";
 
 // Platform console: tenant METADATA only — no tenant content (ADMIN-009 break-glass is out of scope for the demo).
 export default async function AdminHome() {
@@ -25,6 +26,16 @@ export default async function AdminHome() {
               <td className="font-mono">{seats}</td><td className="font-mono">{projects}</td><td className="font-mono text-xs">{fmtBytes(storage)}</td>
               <td>{chain.ok ? <Badge tone="ok">verified</Badge> : <Badge tone="bad">broken</Badge>}</td><td className="text-xs">{fmtDate(o.createdAt)}</td><td><StatusBadge status={o.status} /></td></tr>
           ))}</tbody></table>
+      </Card>
+      <Card title="Break-glass access (ADMIN-009)" className="mt-6">
+        <BreakGlassForm orgs={d.organizations.map((o) => ({ id: o.id, name: o.name }))} />
+        {d.breakGlassSessions.length > 0 && (
+          <table className="table mt-4 text-xs"><thead><tr><th>Started</th><th>Staff</th><th>Organization</th><th>Ticket</th><th>Ends</th><th>Status</th></tr></thead><tbody>
+            {d.breakGlassSessions.slice().reverse().map((b) => <tr key={b.id}><td>{fmtDateTime(b.startsAt)}</td><td>{d.users.find((u) => u.id === b.staffUserId)?.email}</td>
+              <td>{d.organizations.find((o) => o.id === b.organizationId)?.name}</td><td className="font-mono">{b.ticketRef}</td><td>{fmtDateTime(b.endedEarlyAt ?? b.endsAt)}</td>
+              <td>{b.endedEarlyAt ? "ended" : Date.parse(b.endsAt) > Date.now() ? <span className="text-bad">active</span> : "expired"}</td></tr>)}
+          </tbody></table>
+        )}
       </Card>
       <Card title="System health" className="mt-6">
         <ul className="grid gap-2 text-sm md:grid-cols-3">

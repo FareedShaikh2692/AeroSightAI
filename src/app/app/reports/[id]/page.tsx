@@ -50,7 +50,12 @@ export default async function ReportView({ params }: { params: Promise<{ id: str
             </dl>
           </header>
         )}
-        {has("executive_summary") && <section><h2 className="mb-2 text-lg font-semibold">Executive summary</h2><p className="leading-relaxed text-[#4A5868]">{summary}</p></section>}
+        {has("executive_summary") && (
+          <section><h2 className="mb-2 text-lg font-semibold">Executive summary</h2>
+            <p className="leading-relaxed text-[#4A5868]">{r.narrative?.text ?? summary}</p>
+            {r.narrative?.engine === "claude" && <p className="mt-2 text-[11px] text-[#0891B2]">AI-assisted ({r.narrative.model}) — not an engineering certification. Figures verified against report data.</p>}
+          </section>
+        )}
         {has("kpis") && (
           <section className="grid grid-cols-4 gap-3">
             {[["Actual", `${prog.actualPct}%`], ["Planned", `${prog.plannedPct}%`], ["Variance", `${prog.scheduleVariancePct}%`], ["Forecast", prog.forecastCompletion ? fmtDate(prog.forecastCompletion) : "—"]].map(([k, v]) => (

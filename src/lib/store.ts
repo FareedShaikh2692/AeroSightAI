@@ -6,13 +6,13 @@ import { createHash } from "node:crypto";
 import type { AuditLog } from "./types";
 import { sid } from "./ids";
 
-interface StoreState { data: DataSet; bootedAt: string; chainHeads: Map<string, string> }
+interface StoreState { data: DataSet; bootedAt: string; chainHeads: Map<string, string>; chainAnchors: Map<string, string> }
 
 const g = globalThis as unknown as { __aerosight?: StoreState };
 
 function boot(): StoreState {
   const data = buildSeed();
-  const state: StoreState = { data, bootedAt: new Date().toISOString(), chainHeads: new Map() };
+  const state: StoreState = { data, bootedAt: new Date().toISOString(), chainHeads: new Map(), chainAnchors: new Map() };
   // Seed a short, valid audit history per org so the hash chain verifies from the start.
   for (const org of data.organizations) {
     const owner = data.memberships.find((m) => m.organizationId === org.id && m.role === "org_owner");
@@ -55,7 +55,7 @@ export function appendAudit(state: StoreState, e: Omit<AuditLog, "hash" | "prevH
 
 /** Recomputes the chain for an org; returns the first broken entry id, or null if intact (AUDIT-010). */
 export function verifyAuditChain(orgId: string): { ok: boolean; checked: number; brokenAt?: string } {
-  let prev = "0".repeat(64);
+  let prev = store().chainAnchors.get(orgId) ?? "0".repeat(64);
   const rows = db().auditLogs.filter((r) => r.organizationId === orgId);
   for (const r of rows) {
     const { hash, prevHash, ...rest } = r;

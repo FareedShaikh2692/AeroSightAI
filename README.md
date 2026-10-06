@@ -32,7 +32,10 @@ Open http://localhost:3000 and choose a demo account on the sign-in page. All de
 
 | Variable | Required | Description |
 |---|---|---|
-| `AUTH_SECRET` | Yes in production | ≥ 32-character secret used to sign session cookies. If missing, an insecure built-in fallback is used and a warning is logged. |
+| `AUTH_SECRET` | Yes in production | ≥ 32-character secret used to sign session cookies and encrypt stored secrets. If missing, an insecure built-in fallback is used. |
+| `ANTHROPIC_API_KEY` | Optional | Enables Claude for AI analysis, report summaries and the assistant. Without it, AI runs in a labelled heuristic mode and the assistant is off. |
+| `AI_MODEL` | Optional | Claude model (default `claude-opus-5-5`). |
+| `CRON_SECRET` | For the daily job | Protects `/api/cron/daily` (overdue-finding reminders, retention). |
 
 ## Demo data
 
@@ -52,6 +55,7 @@ Each has one user per role (Owner, Admin, Project Manager, Site Manager, Drone P
 4. Plan a mission (**Missions → New mission**) and watch the server reject waypoints in the crane no-fly zone or above the altitude limit.
 5. Sign in as the Atlas **Inspector** → approve your own inspection (refused), then as the **Engineer** → approve it.
 6. Sign in as the Atlas **Viewer** → only shared media and published reports are visible.
+7. **Phase 2:** AI Insights → *Analyze progress* → accept/edit/reject proposals; Settings → set up 2FA; Integrations → API keys / webhooks / Slack; Maps → *3D terrain* → *Profile* / *Volume*; Inspections → *Templates* / *Schedule inspection*; Admin console → *Break-glass access*.
 
 ## Architecture of the demo build
 
@@ -106,7 +110,15 @@ The full register lives in [docs/13-Product/MVP.md §4](docs/13-Product/MVP.md#4
 | Inspections (checklist, findings, no self-approval, finding lifecycle) | Prototype |
 | Reports (generate, publish, print to PDF) | Prototype |
 | 3D twin | Prototype (extruded assets over terrain) |
-| Media upload, surveys processing, live video, AI, integrations, billing, SSO, 2FA enrollment | Planned / Integration Required |
+| **Phase 2:** TOTP 2FA (QR, recovery codes, org enforcement) | Prototype |
+| **Phase 2:** Notification preferences, Slack/Teams routing, dedupe, digest, daily cron | Prototype |
+| **Phase 2:** Signed webhooks + delivery log, scoped API keys, SSRF protection | Prototype |
+| **Phase 2:** AI progress analysis + review queue, AI report summary, AI assistant | Prototype (Claude when `ANTHROPIC_API_KEY` is set, heuristic otherwise) |
+| **Phase 2:** Inspection templates (versioned) and scheduling | Prototype |
+| **Phase 2:** 3D terrain, elevation profiles, cut/fill volumes (public DEM) | Prototype |
+| **Phase 2:** Retention policies, legal holds, personal & organization exports, break-glass | Prototype |
+| **Phase 2:** DJI Cloud live telemetry & video, NodeODM processing | Integration Required (connectors + connection tests built; need your provider accounts) |
+| AI change/defect detection from imagery, media upload, billing, SSO | Planned / Integration Required |
 
 ## Deployment
 

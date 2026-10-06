@@ -3,12 +3,14 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, store, appendAudit } from "@/lib/store";
 import { verifyPassword, dummyVerify, hashPassword, passwordIssues } from "@/lib/password";
-import { signSession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session";
+import { signSession, SESSION_COOKIE, SESSION_TTL_SECONDS, MFA_COOKIE, signMfaPending, verifyMfaPending } from "@/lib/session";
+import { verifyTotp } from "@/lib/totp";
+import { sha256 } from "@/lib/crypto";
 import { getContext, clientIp } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 import { z } from "zod";
 
-export type FormState = { error?: string | null; email?: string };
+export type FormState = { error?: string | null; email?: string; mfa?: boolean };
 
 // AUTH-007: lock an account for 15 minutes after 10 failures within 15 minutes; per-IP throttle too.
 const failures = new Map<string, number[]>();
@@ -49,9 +51,51 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   }
   const membership = db().memberships.find((m) => m.userId === user.id && m.status === "active" && db().organizations.find((o) => o.id === m.organizationId)?.status === "active");
   if (!membership) return { error: "Your account has no active organization.", email };
-  await setSession(user.id, membership.organizationId);
-  appendAudit(store(), { id: newId(), organizationId: membership.organizationId, occurredAt: new Date().toISOString(), actorType: "user", actorId: user.id, actorLabel: user.email, action: "auth.login_succeeded", entityType: "user", entityId: user.id, ip });
+  if (user.mfaSecret) {
+    // AUTH-010: password verified — require the second factor before issuing a session.
+    (await cookies()).set(MFA_COOKIE, await signMfaPending(user.id, membership.organizationId, next), {
+      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 300,
+    });
+    return { mfa: true, email };
+  }
+  await completeLogin(user.id, membership.organizationId, ip, next, "password");
+  return {};
+}
+
+async function completeLogin(userId: string, orgId: string, ip: string, next: string, method: string): Promise<never> {
+  const user = db().users.find((u) => u.id === userId)!;
+  await setSession(user.id, orgId);
+  appendAudit(store(), { id: newId(), organizationId: orgId, occurredAt: new Date().toISOString(), actorType: "user", actorId: user.id, actorLabel: user.email,
+    action: "auth.login_succeeded", entityType: "user", entityId: user.id, ip, changes: { method: [null, method] } });
   redirect(next.startsWith("/app/") ? next : "/app/dashboard");
+}
+
+/** Second step: TOTP code or a single-use recovery code (AUTH-009/010). */
+export async function mfaVerifyAction(_: FormState, form: FormData): Promise<FormState> {
+  const jar = await cookies();
+  const pending = await verifyMfaPending(jar.get(MFA_COOKIE)?.value);
+  if (!pending) return { error: "Your sign-in expired. Enter your password again." };
+  const ip = await clientIp();
+  if (tooMany(`mfa:${pending.sub}`, 5)) return { error: "Too many attempts. Try again in 15 minutes.", mfa: true };
+  const user = db().users.find((u) => u.id === pending.sub);
+  if (!user?.mfaSecret) return { error: "Two-factor authentication is not set up for this account." };
+  const code = String(form.get("code") ?? "").replace(/\s|-/g, "");
+  let method = "totp";
+  if (/^\d{6}$/.test(code)) {
+    const step = verifyTotp(user.mfaSecret, code, user.mfaLastStep ?? -1);
+    if (step === null) { fail(`mfa:${pending.sub}`); return { error: "That code is invalid or was already used.", mfa: true }; }
+    user.mfaLastStep = step;
+  } else {
+    const h = sha256(code.toLowerCase());
+    const idx = user.recoveryCodeHashes?.indexOf(h) ?? -1;
+    if (idx < 0) { fail(`mfa:${pending.sub}`); return { error: "That code is invalid or was already used.", mfa: true }; }
+    user.recoveryCodeHashes!.splice(idx, 1); // single use
+    method = "recovery_code";
+  }
+  jar.delete(MFA_COOKIE);
+  failures.delete(`mfa:${pending.sub}`);
+  await completeLogin(user.id, pending.org, ip, pending.next, method);
+  return {};
 }
 
 const SignupSchema = z.object({
@@ -75,7 +119,8 @@ export async function signupAction(_: FormState, form: FormData): Promise<FormSt
   const now = new Date().toISOString();
   const user = { id: newId(), email, fullName, passwordHash: hashPassword(password), mfaEnabled: false, lastLoginAt: now };
   const org = { id: newId(), name: organizationName, slug, status: "active" as const, country: "AE", timezone: "UTC", region: "demo", brandColor: "#FFB020",
-    plan: "professional" as const, settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: false }, createdAt: now };
+    plan: "professional" as const, settings: { mfaRequired: false, externalSharing: true, missionApprovalRequired: false, aiEnabled: true, fourEyesProgress: false },
+    aiCreditsUsed: 0, aiCreditsLimit: 5000, createdAt: now };
   db().users.push(user);
   db().organizations.push(org);
   db().memberships.push({ id: newId(), organizationId: org.id, userId: user.id, role: "org_owner", status: "active", joinedAt: now });
@@ -100,6 +145,7 @@ export async function demoLoginAction(form: FormData) {
   if (!email.endsWith(".demo")) redirect("/login");
   const user = db().users.find((u) => u.email === email);
   if (!user) redirect("/login");
+  if (user.mfaSecret) redirect("/login?mfa=1"); // never bypass a second factor the user has enabled
   if (user.isPlatformStaff) { await setSession(user.id, "", true); redirect("/admin"); }
   const m = db().memberships.find((x) => x.userId === user.id && x.status === "active");
   if (!m) redirect("/login");

@@ -60,9 +60,15 @@ export interface MapViewProps {
   drone?: { lng: number; lat: number; heading: number; stale?: boolean } | null;
   trail?: LngLat[];
   className?: string;
+  /** Real terrain from AWS Terrain Tiles (terrarium encoding, public dataset). Enables queryTerrainElevation. */
+  terrain?: boolean;
+  onReady?: (map: MLMap) => void;
 }
 
-export default function MapView({ data, center, zoom = 15, fitTo, height = 420, initialBasemap = "streets", threeD = false, drawMode = false, onDrawChange, drone, trail, className }: MapViewProps) {
+export const TERRAIN_EXAGGERATION = 1;
+export const TERRAIN_ATTRIBUTION = "Elevation: AWS Terrain Tiles (Mapzen; SRTM, NED, GMTED, ETOPO1)";
+
+export default function MapView({ data, center, zoom = 15, fitTo, height = 420, initialBasemap = "streets", threeD = false, drawMode = false, onDrawChange, drone, trail, className, terrain = false, onReady }: MapViewProps) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const droneMarker = useRef<maplibregl.Marker | null>(null);
@@ -90,6 +96,7 @@ export default function MapView({ data, center, zoom = 15, fitTo, height = 420, 
     m.on("load", () => {
       addLayers(m, threeD);
       setReady(true);
+      onReady?.(m);
       if (fitTo && fitTo.length) {
         const b = new maplibregl.LngLatBounds(fitTo[0], fitTo[0]);
         fitTo.forEach((p) => b.extend(p));
@@ -113,6 +120,25 @@ export default function MapView({ data, center, zoom = 15, fitTo, height = 420, 
     const firstOverlay = m.getStyle().layers.find((l) => l.id !== "base")?.id;
     m.addLayer({ id: "base", type: "raster", source: "base" }, firstOverlay);
   }, [basemap, ready]);
+
+  // Real terrain on/off
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    if (terrain) {
+      const tiles = ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"];
+      if (!m.getSource("dem")) m.addSource("dem", { type: "raster-dem", tiles, encoding: "terrarium", tileSize: 256, maxzoom: 15, attribution: TERRAIN_ATTRIBUTION });
+      if (!m.getSource("dem-hs")) m.addSource("dem-hs", { type: "raster-dem", tiles, encoding: "terrarium", tileSize: 256, maxzoom: 15 });
+      if (!m.getLayer("hillshade")) m.addLayer({ id: "hillshade", type: "hillshade", source: "dem-hs", paint: { "hillshade-exaggeration": 0.3, "hillshade-shadow-color": "#0A0F14" } }, "sites-fill");
+      m.setTerrain({ source: "dem", exaggeration: TERRAIN_EXAGGERATION });
+      // Keep the camera well above the surface: very close zooms with terrain can place it inside the ground.
+      m.easeTo({ pitch: Math.max(m.getPitch(), 55), zoom: Math.min(m.getZoom(), 16), duration: 800 });
+    } else if (m.getTerrain()) {
+      m.setTerrain(null);
+      if (m.getLayer("hillshade")) m.removeLayer("hillshade");
+      m.easeTo({ pitch: threeD ? 58 : 0, duration: 600 });
+    }
+  }, [terrain, ready, threeD]);
 
   // Data updates
   useEffect(() => {
