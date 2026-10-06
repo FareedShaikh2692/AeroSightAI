@@ -118,7 +118,7 @@ export async function registerDroneAction(_: ActionState, f: FormData): Promise<
   const ctx = await requireContext();
   try {
     const d = repo.registerDrone(ctx, { name: str(f, "name"), manufacturer: str(f, "manufacturer"), model: str(f, "model"), serialNumber: str(f, "serialNumber"),
-      registrationNumber: str(f, "registrationNumber"), registrationExpiresAt: str(f, "registrationExpiresAt"), providerKey: str(f, "providerKey") === "simulator" ? "simulator" : "manual" });
+      registrationNumber: str(f, "registrationNumber"), registrationExpiresAt: str(f, "registrationExpiresAt"), providerKey: str(f, "providerKey") as never });
     await audit(ctx, "drone.registered", "drone", d.id, { changes: { serialNumber: [null, d.serialNumber] } });
   } catch (e) { return fail(e); }
   revalidatePath("/app/fleet");

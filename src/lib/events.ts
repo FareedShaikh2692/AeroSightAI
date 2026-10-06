@@ -29,10 +29,13 @@ export const EVENT_CATALOG: Record<string, { category: NotificationCategory; lab
   "progress.approved": { category: "progress", label: "Progress approved", readPerm: "progress:read" },
   "report.published": { category: "reports", label: "Report published", readPerm: "report:read" },
   "ai.analysis_completed": { category: "ai", label: "AI analysis completed", readPerm: "progress:read" },
+  "risk.high": { category: "progress", label: "Project risk high", readPerm: "progress:read" },
+  "schedule.capture_created": { category: "missions", label: "Scheduled capture created", readPerm: "mission:read" },
+  "automation.notification": { category: "missions", label: "Automation notification", readPerm: "project:read" },
   "security.mfa_changed": { category: "security", label: "Two-factor settings changed", readPerm: "org:read" },
   "security.break_glass": { category: "security", label: "Platform staff access", readPerm: "org:read" },
 };
-export const WEBHOOK_EVENTS = Object.keys(EVENT_CATALOG).filter((k) => !k.startsWith("security."));
+export const WEBHOOK_EVENTS = Object.keys(EVENT_CATALOG).filter((k) => !k.startsWith("security.") && !k.startsWith("automation."));
 export const MANDATORY: NotificationCategory[] = ["security", "billing"];
 
 export interface DomainEvent {
@@ -73,10 +76,18 @@ export function emit(e: DomainEvent) {
       createdAt: now, projectId: e.projectId, dedupeKey, occurrences: 1, digest: pref.digest && severity === "info" });
   }
 
-  // 2. Slack / Teams channel rules (NOTIF-006).
+  // 2. Workflow automation rules (Phase 4). Events produced by automations are never re-processed.
+  if (!e.data?._automation && db().automationRules.some((r) => r.organizationId === e.orgId && r.enabled && r.trigger === e.key)) {
+    after(async () => {
+      const { runAutomations } = await import("./automation");
+      await runAutomations(e, { emit, deliverWebhook, analyze: async (ctx, projectId) => (await import("./ai/features")).analyzeProgress(ctx, projectId) });
+    });
+  }
+
+  // 3. Slack / Teams channel rules (NOTIF-006).
   const rules = db().notificationRules.filter((r) => r.organizationId === e.orgId && r.active && r.categories.includes(category) &&
     SEV_RANK[severity] >= SEV_RANK[r.minSeverity] && (!r.projectIds.length || (e.projectId && r.projectIds.includes(e.projectId))));
-  // 3. Customer webhooks (INTEG-006). Payload contains IDs and minimal fields only.
+  // 4. Customer webhooks (INTEG-006). Payload contains IDs and minimal fields only.
   const hooks = db().webhooks.filter((w) => w.organizationId === e.orgId && w.active && w.eventTypes.includes(e.key));
   if (!rules.length && !hooks.length) return;
 
@@ -149,6 +160,24 @@ export function missionEvent(orgId: string, m: Mission, action: string, reason?:
   if (action === "reject") emit({ ...base, key: "mission.rejected", severity: "warning", title: "Mission rejected", body: `${m.name} — ${reason ?? ""}`, recipients: [m.createdBy!, pilotUser!].filter(Boolean) });
   if (action === "start") emit({ ...base, key: "mission.started", title: "Flight started", body: `${m.name}${m.isSimulated ? " (simulated)" : ""}`, recipients: managers });
   if (action === "stop") emit({ ...base, key: "mission.completed", title: "Flight completed", body: m.name, recipients: managers });
+  // Automated site intelligence: a completed scheduled capture triggers AI progress analysis (as the schedule owner).
+  const sched = action === "stop" && m.scheduleId ? db().captureSchedules.find((s) => s.id === m.scheduleId && s.autoAnalyze && s.enabled) : undefined;
+  if (sched) {
+    after(async () => {
+      const { scheduleCreatorCtx } = await import("./schedules");
+      const ctx = scheduleCreatorCtx(sched);
+      if (!ctx) return;
+      try {
+        const a = await (await import("./ai/features")).analyzeProgress(ctx, m.projectId);
+        db().missionEvents.push({ id: newId(), organizationId: orgId, missionId: m.id, at: new Date().toISOString(), type: "auto_analysis",
+          text: `Automatic progress analysis ${a.status}${a.status === "completed" ? ` — ${(a.output as { proposals?: number })?.proposals ?? 0} proposal(s) in the AI review queue` : ""}` });
+        if (a.status === "completed") emit({ ...base, key: "ai.analysis_completed", entityType: "ai_analysis", entityId: a.id, href: "/app/ai", title: "Automatic progress analysis ready",
+          body: `${m.name}: ${(a.output as { proposals?: number })?.proposals ?? 0} proposal(s) to review`, recipients: managers });
+      } catch (err) {
+        db().missionEvents.push({ id: newId(), organizationId: orgId, missionId: m.id, at: new Date().toISOString(), type: "auto_analysis", text: `Automatic analysis skipped: ${(err as Error).message}` });
+      }
+    });
+  }
   if (action === "abort") emit({ ...base, key: "mission.aborted", severity: "warning", title: "Flight aborted", body: `${m.name} — ${reason ?? ""}`, recipients: managers });
 }
 

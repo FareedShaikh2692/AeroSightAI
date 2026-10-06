@@ -35,6 +35,8 @@ export interface Project {
   id: UUID; organizationId: UUID; code: string; name: string; type: string; clientName: string;
   status: ProjectStatus; startDate: string; endDate: string; location: LngLat; description: string;
   timezone: string; createdAt: string; createdBy?: UUID;
+  /** Phase 4 (5D): budget at completion; milestone budgets are BAC × weight share. */
+  budget?: { bac: number; currency: string };
 }
 
 export interface Site {
@@ -52,7 +54,7 @@ export interface Asset {
 
 export type DroneStatus = "available" | "in_mission" | "maintenance" | "offline" | "retired";
 export interface Drone {
-  id: UUID; organizationId: UUID; providerKey: "simulator" | "manual" | "dji_cloud"; name: string;
+  id: UUID; organizationId: UUID; providerKey: "simulator" | "manual" | "dji_cloud" | "mavlink" | "skydio" | "parrot" | "autel"; name: string;
   manufacturer: string; model: string; serialNumber: string; registrationNumber: string;
   registrationExpiresAt: string; status: DroneStatus; maxFlightTimeMin: number; maxSpeedMps: number;
   totalFlightSeconds: number; totalFlights: number; homeSiteId?: UUID;
@@ -84,6 +86,8 @@ export interface Mission {
   checklist: { id: string; label: string; checked: boolean }[]; abortReason?: string;
   rejectionReason?: string; isSimulated: boolean; createdBy?: UUID; createdAt: string;
   summary?: { durationS: number; distanceM: number; maxAltM: number; minBattery: number };
+  /** Phase 4: created by a capture schedule; weather assessment at creation. */
+  scheduleId?: UUID; weather?: WeatherAssessment;
   /** Phase 3: commanded state for adapters with verified missionControl. */
   control?: { pausedAt?: string; pausedTotalMs: number; rthAt?: string };
 }
@@ -128,6 +132,8 @@ export interface Finding {
   code: string; title: string; description: string; category: string; severity: Severity;
   status: "open" | "in_progress" | "resolved" | "verified" | "closed" | "wont_fix";
   location: LngLat; assigneeId?: UUID; dueDate: string; aiGenerated: boolean; createdAt: string;
+  /** Set by automation rules. */
+  automationNote?: string;
   /** Set when the finding first reaches "resolved" (MTTR / SLA analytics). */
   resolvedAt?: string;
 }
@@ -247,3 +253,44 @@ export interface TelemetrySample {
   relativeAltitude: number; speed: number; heading: number; battery: number; satellites: number; gpsSignal: string; signalStrength?: number;
   flightTime?: number; flightMode?: string; simulated: false; source: "edge_bridge";
 }
+
+// ---------------------------------------------------------------- Phase 4
+
+/** Enterprise automation (rules engine). Actions run with the creator's permissions, re-checked at run time. */
+export type AutomationOp = "eq" | "neq" | "in" | "gte" | "lte" | "contains";
+export interface AutomationCondition { field: string; op: AutomationOp; value: string }
+export type AutomationActionType = "notify_roles" | "post_channel" | "send_webhook" | "set_finding_due" | "assign_finding" | "create_inspection" | "run_ai_analysis";
+export interface AutomationAction { type: AutomationActionType; params: Record<string, string> }
+export interface AutomationRule {
+  id: UUID; organizationId: UUID; name: string; enabled: boolean; trigger: string; conditions: AutomationCondition[]; actions: AutomationAction[];
+  createdBy: UUID; createdAt: string; updatedAt: string; runCount: number; lastRunAt?: string;
+}
+export interface AutomationRun {
+  id: UUID; organizationId: UUID; ruleId: UUID; trigger: string; entityType: string; entityId: UUID; at: string;
+  status: "succeeded" | "partial" | "failed" | "throttled"; steps: { action: AutomationActionType; ok: boolean; detail: string }[];
+}
+
+/** Automated site intelligence: recurring capture schedules. */
+export interface CaptureSchedule {
+  id: UUID; organizationId: UUID; projectId: UUID; siteId: UUID; name: string; templateMissionId: UUID;
+  cadence: "daily" | "weekly" | "biweekly" | "monthly"; weekday: number; timeLocal: string; droneId?: UUID; pilotId?: UUID;
+  autoAnalyze: boolean; weatherGate: boolean; enabled: boolean; nextRunAt: string; lastRunAt?: string; lastResult?: string;
+  createdBy: UUID; createdAt: string;
+}
+
+export interface WeatherAssessment {
+  verdict: "go" | "marginal" | "no_go"; at: string; windMps: number; gustMps: number; precipProbPct: number; precipMm: number;
+  tempC: number; visibilityM?: number; reasons: string[]; source: "open-meteo"; fetchedAt: string;
+}
+
+/** BIM 4D/5D: model elements linked to schedule (milestone) and cost. */
+export interface BimElement {
+  id: UUID; organizationId: UUID; projectId: UUID; siteId: UUID; assetId: UUID; milestoneId: UUID; guid: string; name: string;
+  ifcClass: "IfcSlab" | "IfcColumn" | "IfcWall" | "IfcBeam" | "IfcRoof" | "IfcFooting" | "IfcPile" | "IfcCovering";
+  level: number; sequence: number; baseZ: number; topZ: number; footprint: LngLat[]; budgetCost: number; currency: string;
+}
+export interface CostEntry { id: UUID; organizationId: UUID; projectId: UUID; milestoneId: UUID; date: string; amount: number; description: string; source: "erp_import" | "manual" }
+export interface AsBuiltMeasurement { id: UUID; organizationId: UUID; projectId: UUID; elementId: UUID; surveyId?: UUID; measuredTopZ: number; measuredAt: string; method: "survey_dsm" | "total_station" | "manual"; synthetic: boolean; findingId?: UUID }
+
+/** Ecosystem: drone adapters enabled per organization. */
+export interface OrgAdapter { organizationId: UUID; adapterKey: string; enabledAt: string; enabledBy: UUID }

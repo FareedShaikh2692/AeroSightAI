@@ -9,6 +9,7 @@ import { MapClient } from "@/components/MapClient";
 import { Twin3D, type TwinData } from "@/components/Twin3D";
 import { saveViewpointAction } from "./actions";
 import type { Asset, LngLat } from "@/lib/types";
+import { elementState } from "@/lib/bim";
 
 /** Assets without a surveyed footprint get a square sized by type around their location. */
 function footprint(a: Asset): LngLat[] {
@@ -19,11 +20,11 @@ function footprint(a: Asset): LngLat[] {
   return [[x - dLng, y - dLat], [x + dLng, y - dLat], [x + dLng, y + dLat], [x - dLng, y + dLat], [x - dLng, y - dLat]];
 }
 
-export default async function Twin({ searchParams }: { searchParams: Promise<{ site?: string }> }) {
+export default async function Twin({ searchParams }: { searchParams: Promise<{ site?: string; mode?: string }> }) {
   const ctx = await requireContext();
   if (!can(ctx, "twin:read")) return <Forbidden perm="twin:read" />;
   const sites = repo.listSites(ctx);
-  const { site: siteId } = await searchParams;
+  const { site: siteId, mode } = await searchParams;
   const site = sites.find((s) => s.id === siteId) ?? sites[0];
   if (!site) return <Empty title="No sites available" />;
   const assets = repo.listAssets(ctx, site.id);
@@ -38,6 +39,12 @@ export default async function Twin({ searchParams }: { searchParams: Promise<{ s
   const timeline = project && prog
     ? series(prog.milestonesList, prog.records, project.startDate, project.endDate < today ? project.endDate : today, 14).filter((p) => p.actualPct !== null).map((p) => ({ date: p.date, pct: p.actualPct ?? 0 }))
     : [{ date: today, pct: 100 }];
+  const els = prog ? db().bimElements.filter((e) => e.siteId === site.id && e.organizationId === ctx.orgId) : [];
+  const bim = prog ? els.map((e) => {
+    const ms = prog.milestonesList.find((m) => m.id === e.milestoneId)!;
+    const codes = timeline.map((t) => ({ not_started: "n", on_track: "o", ahead: "a", behind: "b", complete: "c" })[elementState(e, els, ms, prog.records, t.date).status]).join("");
+    return { id: e.id, name: e.name, ifcClass: e.ifcClass, milestone: ms.name, baseZ: e.baseZ, topZ: e.topZ, footprint: e.footprint, codes };
+  }) : undefined;
   const viewpoints = db().viewpoints.filter((v) => v.organizationId === ctx.orgId && v.siteId === site.id && (v.createdBy === ctx.userId || v.visibility === "project"))
     .map((v) => ({ id: v.id, name: v.name, camera: v.camera, mine: v.createdBy === ctx.userId }));
   const path = (m?: typeof flown) => m && m.waypoints.length ? { code: m.code, points: m.waypoints.map((w) => [w.lng, w.lat, w.altM] as [number, number, number]) } : undefined;
@@ -47,7 +54,7 @@ export default async function Twin({ searchParams }: { searchParams: Promise<{ s
     findings: findings.map((f) => ({ id: f.id, title: f.title, severity: f.severity, status: f.status, location: f.location })),
     planned: planned && planned !== flown ? path(planned) : undefined, flown: path(flown),
     live: live ? { missionId: live.id, code: live.code, drone: db().drones.find((d) => d.id === live.droneId)?.name ?? "Drone" } : undefined,
-    timeline,
+    timeline, bim,
   };
   return (
     <>
@@ -56,7 +63,7 @@ export default async function Twin({ searchParams }: { searchParams: Promise<{ s
       <div className="mb-4 flex flex-wrap gap-2">
         {sites.map((s) => <Link key={s.id} href={`/app/twin?site=${s.id}`} className={`rounded-full border px-3 py-1 text-xs ${s.id === site.id ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink"}`}>{s.name}</Link>)}
       </div>
-      <Twin3D key={site.id} data={data} viewpoints={viewpoints} onSaveViewpoint={saveViewpointAction.bind(null, site.id)}
+      <Twin3D key={site.id} data={data} initial4d={mode === "4d" && !!bim?.length} viewpoints={viewpoints} onSaveViewpoint={saveViewpointAction.bind(null, site.id)}
         fallback={<MapClient height={560} initialBasemap="satellite" fitTo={site.boundary} data={{
           sites: [{ id: site.id, name: site.name, boundary: site.boundary }], noFly: site.noFlyZones, assets,
           findings: findings.map((f) => ({ id: f.id, title: f.title, severity: f.severity, location: f.location })),

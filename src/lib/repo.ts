@@ -1,7 +1,8 @@
 // Tenant-scoped repository. Every read filters by ctx.orgId and accessible projects; every mutation checks
 // permissions and writes an audit event. Cross-tenant lookups return null (→ 404) per TENANT-004.
 import "server-only";
-import type { AuthContext, Mission, Project, Site, UUID, Polygon, MissionParams, ProgressRecord, Inspection, Finding, Report, Media, LngLat } from "./types";
+import { adapter } from "./adapters";
+import type { Drone, AuthContext, Mission, Project, Site, UUID, Polygon, MissionParams, ProgressRecord, Inspection, Finding, Report, Media, LngLat } from "./types";
 import { db } from "./store";
 import { accessibleProjectIds, assertCan, can, forbidden, HttpError, isOrgWide, notFound, restriction } from "./policy";
 import { audit } from "./auth";
@@ -99,11 +100,15 @@ export function listPilots(ctx: AuthContext) {
   assertCan(ctx, "drone:read");
   return db().pilots.filter((p) => p.organizationId === ctx.orgId).map((p) => ({ ...p, fullName: userName(p.userId) }));
 }
-export function registerDrone(ctx: AuthContext, input: { name: string; manufacturer: string; model: string; serialNumber: string; registrationNumber: string; registrationExpiresAt: string; providerKey: "simulator" | "manual" }) {
+export function registerDrone(ctx: AuthContext, input: { name: string; manufacturer: string; model: string; serialNumber: string; registrationNumber: string; registrationExpiresAt: string; providerKey: Drone["providerKey"] }) {
   assertCan(ctx, "drone:register");
+  const ad = adapter(input.providerKey);
+  if (!ad) throw new HttpError(422, "VALIDATION_ERROR", "Unknown provider.");
+  if (!ad.builtIn && !db().orgAdapters.some((a) => a.organizationId === ctx.orgId && a.adapterKey === ad.key)) throw new HttpError(422, "ADAPTER_NOT_ENABLED", `Enable the ${ad.name} adapter under Ecosystem first.`);
   if (!input.name || !input.serialNumber) throw new HttpError(422, "VALIDATION_ERROR", "Name and serial number are required.");
   if (db().drones.some((d) => d.organizationId === ctx.orgId && d.serialNumber === input.serialNumber)) throw new HttpError(409, "CONFLICT", "A drone with this serial number is already registered.");
-  const d = { id: newId(), organizationId: ctx.orgId, status: "available" as const, maxFlightTimeMin: 40, maxSpeedMps: 15, totalFlightSeconds: 0, totalFlights: 0, ...input };
+  const d: Drone = { id: newId(), organizationId: ctx.orgId, status: "available" as const, maxFlightTimeMin: 40, maxSpeedMps: 15, totalFlightSeconds: 0, totalFlights: 0, ...input,
+    missionControlVerified: ad.capabilities.missionControl === "verified" };
   db().drones.push(d);
   return d;
 }

@@ -5,6 +5,7 @@ import type {
   Media, Survey, Milestone, ProgressRecord, Inspection, Finding, Report, Notification, AuditLog, RoleKey, LngLat, MissionStatus,
   NotificationPreference, NotificationRule, Webhook, WebhookDelivery, ApiKey, AiAnalysis, AiSuggestion, AiConversation,
   InspectionTemplate, RetentionPolicy, LegalHold, Integration, BreakGlassSession, DataClass, Viewpoint, SsoConfig, ScimToken, EdgeDevice, TelemetrySample,
+  AutomationRule, AutomationRun, CaptureSchedule, BimElement, CostEntry, AsBuiltMeasurement, OrgAdapter,
 } from "./types";
 import { sid, prng } from "./ids";
 import { hashPassword } from "./password";
@@ -26,6 +27,9 @@ export interface DataSet {
   legalHolds: LegalHold[]; integrations: Integration[]; breakGlassSessions: BreakGlassSession[];
   // Phase 3
   viewpoints: Viewpoint[]; ssoConfigs: SsoConfig[]; scimTokens: ScimToken[]; edgeDevices: EdgeDevice[]; telemetry: TelemetrySample[];
+  // Phase 4
+  automationRules: AutomationRule[]; automationRuns: AutomationRun[]; captureSchedules: CaptureSchedule[];
+  bimElements: BimElement[]; costEntries: CostEntry[]; asBuilt: AsBuiltMeasurement[]; orgAdapters: OrgAdapter[];
 }
 
 export const DEFAULT_RETENTION: Record<DataClass, number> = {
@@ -121,6 +125,7 @@ export function buildSeed(now = Date.now()): DataSet {
     notificationPreferences: [], notificationRules: [], webhooks: [], webhookDeliveries: [], apiKeys: [], aiAnalyses: [],
     aiSuggestions: [], aiConversations: [], inspectionTemplates: [], retentionPolicies: [], legalHolds: [], integrations: [], breakGlassSessions: [],
     viewpoints: [], ssoConfigs: [], scimTokens: [], edgeDevices: [], telemetry: [],
+    automationRules: [], automationRuns: [], captureSchedules: [], bimElements: [], costEntries: [], asBuilt: [], orgAdapters: [],
   };
   const pw = hashPassword(DEMO_PASSWORD, Buffer.alloc(16, 42));
   const rnd = prng(20261006);
@@ -199,22 +204,43 @@ export function buildSeed(now = Date.now()): DataSet {
       // Milestones + progress
       const tpl = MILESTONE_TEMPLATES[ps.type] ?? MILESTONE_TEMPLATES.building;
       const elapsed = (today - start) / (end - start);
+      // 5D: budget at completion and a cost-performance factor per project (actual cost ÷ earned value).
+      const bac = { building: 180e6, road: 95e6, bridge: 42e6, industrial: 120e6 }[ps.type as "building"] ?? 80e6;
+      const costFactor = [1.04, 1.12, 0.97][pIndex] ?? 1;
+      const currency = spec.key === "atlas" ? "AED" : "EUR";
+      const msIds: string[] = [];
+      const msNow: number[] = [];
+      ds.projects[ds.projects.length - 1].budget = { bac, currency };
       tpl.forEach((m, mi) => {
         const mid = sid(`ms:${spec.key}:${ps.code}:${mi}`);
         const mStart = start + m.s * (end - start), mEnd = start + m.e * (end - start);
         ds.milestones.push({ id: mid, organizationId: orgId, projectId, name: m.name, plannedStart: date(mStart), plannedEnd: date(mEnd), weight: m.w, sortOrder: mi });
-        const planned = elapsed <= m.s ? 0 : elapsed >= m.e ? 100 : ((elapsed - m.s) / (m.e - m.s)) * 100;
         const lag = pIndex === 1 ? 0.78 : pIndex === 0 ? 0.93 : 1.02; // second project behind schedule
-        const actualNow = Math.min(100, Math.round(planned * lag));
-        if (actualNow > 0) {
-          [0.5, 1].forEach((frac, k) => {
-            const pct = Math.round(actualNow * frac);
-            if (pct <= 0) return;
-            ds.progressRecords.push({ id: sid(`pr:${mid}:${k}`), organizationId: orgId, projectId, milestoneId: mid,
-              recordDate: date(today - (k === 0 ? 35 : 4) * DAY), percentComplete: pct, source: "manual", approvalStatus: "approved",
-              notes: k === 0 ? "Monthly survey measurement" : "Verified from latest aerial capture", evidenceMediaIds: [],
-              createdBy: userByRole.site_manager, approvedBy: userByRole.project_manager, createdAt: iso(today - (k === 0 ? 35 : 4) * DAY) });
-          });
+        const plannedAt = (t: number) => { const e = (t - start) / (end - start); return e <= m.s ? 0 : e >= m.e ? 100 : ((e - m.s) / (m.e - m.s)) * 100; };
+        // Approved measurement history: roughly monthly, plus the latest aerial capture 4 days ago (feeds forecasting).
+        let last = 0;
+        [150, 120, 90, 63, 35, 4].forEach((ago, k) => {
+          const t = today - ago * DAY;
+          if (t < start) return;
+          const wobble = 1 + (rnd() - 0.5) * 0.06;
+          const pct = Math.min(100, Math.round(plannedAt(t) * lag * (ago === 4 ? 1 : wobble)));
+          if (pct <= last) return;
+          last = pct;
+          ds.progressRecords.push({ id: sid(`pr:${mid}:${k}`), organizationId: orgId, projectId, milestoneId: mid,
+            recordDate: date(t), percentComplete: pct, source: ago === 4 ? "survey" : "manual", approvalStatus: "approved",
+            notes: ago === 4 ? "Verified from latest aerial capture" : "Monthly survey measurement", evidenceMediaIds: [],
+            createdBy: userByRole.site_manager, approvedBy: userByRole.project_manager, createdAt: iso(t) });
+        });
+        void elapsed;
+        msIds.push(mid);
+        msNow.push(Math.min(100, Math.round(plannedAt(today) * lag)));
+        // Actual cost (ERP import, synthetic): monthly increments of earned value × cost factor.
+        let prevCost = 0;
+        for (let t = start + 30 * DAY, k = 0; t <= today; t += 30 * DAY, k++) {
+          const cum = (bac * m.w / 100) * Math.min(100, plannedAt(t) * lag) / 100 * costFactor;
+          if (cum - prevCost > 1) ds.costEntries.push({ id: sid(`cost:${mid}:${k}`), organizationId: orgId, projectId, milestoneId: mid, date: date(t),
+            amount: Math.round(cum - prevCost), description: `${m.name} — monthly valuation ${k + 1}`, source: "erp_import" });
+          prevCost = cum;
         }
       });
 
@@ -242,6 +268,41 @@ export function buildSeed(now = Date.now()): DataSet {
             tag: `${ss.code}-${String(ai + 1).padStart(3, "0")}`, location: loc, heightM: height as number,
             footprint: rect(loc, ss.w * (fw as number), ss.h * (fh as number), ss.rot), conditionRating: 2 + Math.floor(rnd() * 3), status: "active" });
         });
+
+        // BIM 4D/5D model of the primary asset (synthetic IFC-like elements), linked to milestones and budget.
+        if (sIndex === 0) {
+          const a = ds.assets.find((x) => x.id === sid(`asset:${siteId}:0`))!;
+          const ring = a.footprint!;
+          const lerp = (p: LngLat, q: LngLat, f: number): LngLat => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+          const segment = (f0: number, f1: number): LngLat[] => { const [c0, c1, c2, c3] = ring; const r = [lerp(c0, c1, f0), lerp(c0, c1, f1), lerp(c3, c2, f1), lerp(c3, c2, f0)]; return [...r, r[0]]; };
+          const levels = Math.max(3, Math.min(24, Math.round(a.heightM / 4)));
+          type Part = { ms: number; cls: BimElement["ifcClass"]; n: number; mode: "vertical" | "segments" | "full"; z?: [number, number] };
+          const plan: Part[] = ({
+            building: [{ ms: 2, cls: "IfcFooting", n: 1, mode: "full", z: [-2, 0] }, { ms: 3, cls: "IfcSlab", n: levels, mode: "vertical" }, { ms: 4, cls: "IfcCovering", n: 4, mode: "vertical" }],
+            industrial: [{ ms: 0, cls: "IfcFooting", n: 1, mode: "full", z: [-1.5, 0] }, { ms: 1, cls: "IfcColumn", n: 4, mode: "segments" }, { ms: 2, cls: "IfcRoof", n: 2, mode: "segments", z: [a.heightM - 1, a.heightM] }, { ms: 3, cls: "IfcSlab", n: 2, mode: "segments", z: [0, 0.3] }],
+            bridge: [{ ms: 2, cls: "IfcColumn", n: 3, mode: "vertical" }, { ms: 3, cls: "IfcSlab", n: 6, mode: "segments", z: [a.heightM - 1.2, a.heightM] }, { ms: 4, cls: "IfcCovering", n: 2, mode: "segments", z: [a.heightM, a.heightM + 0.1] }],
+            road: [{ ms: 1, cls: "IfcFooting", n: 4, mode: "segments", z: [-0.6, 0] }, { ms: 2, cls: "IfcWall", n: 4, mode: "segments", z: [0, a.heightM] }, { ms: 3, cls: "IfcSlab", n: 4, mode: "segments", z: [0, 0.4] }],
+          } as Record<string, Part[]>)[ps.type] ?? [];
+          let seq = 0;
+          for (const part of plan) {
+            const msBudget = bac * tpl[part.ms].w / 100;
+            for (let i = 0; i < part.n; i++) {
+              const id = sid(`bim:${siteId}:${part.ms}:${i}`);
+              const z: [number, number] = part.mode === "vertical" ? [(a.heightM / part.n) * i, (a.heightM / part.n) * (i + 1)] : part.z ?? [0, a.heightM];
+              ds.bimElements.push({ id, organizationId: orgId, projectId, siteId, assetId: a.id, milestoneId: msIds[part.ms], guid: id.replace(/-/g, "").slice(0, 22),
+                name: `${part.cls.replace("Ifc", "")} ${part.mode === "vertical" ? `L${String(i + 1).padStart(2, "0")}` : `S${i + 1}`}`, ifcClass: part.cls,
+                level: part.mode === "vertical" ? i + 1 : 0, sequence: seq++, baseZ: +z[0].toFixed(2), topZ: +z[1].toFixed(2),
+                footprint: part.mode === "segments" ? segment(i / part.n, (i + 1) / part.n) : ring, budgetCost: Math.round(msBudget / part.n), currency });
+              // As-built check (synthetic survey DSM) for elements already built per approved progress.
+              const builtThrough = (msNow[part.ms] / 100) * part.n;
+              if (i + 1 <= builtThrough) {
+                const dev = rnd() < 0.12 ? 0.04 + rnd() * 0.05 : (rnd() - 0.5) * 0.03; // ~12% out of a ±25 mm tolerance
+                ds.asBuilt.push({ id: sid(`asb:${id}`), organizationId: orgId, projectId, elementId: id, surveyId: sid(`survey:${siteId}:1`),
+                  measuredTopZ: +(z[1] + dev).toFixed(3), measuredAt: iso(today - 30 * DAY), method: "survey_dsm", synthetic: true });
+              }
+            }
+          }
+        }
 
         // Surveys
         [60, 30, 4].forEach((ago, k) => {
@@ -333,6 +394,25 @@ export function buildSeed(now = Date.now()): DataSet {
         sections: ["cover", "executive_summary", "kpis", "s_curve", "milestones", "before_after", "findings_summary"], generatedBy: userByRole.project_manager,
         generatedAt: iso(today - 1 * DAY), aiAssisted: false });
     });
+
+    // Phase 4: an example workflow rule and a weekly capture schedule on the first project's main site.
+    ds.automationRules.push({ id: sid(`rule:${spec.key}:0`), organizationId: orgId, name: "Critical finding escalation", enabled: true, trigger: "finding.created",
+      conditions: [{ field: "finding.severity", op: "eq", value: "critical" }],
+      actions: [{ type: "notify_roles", params: { roles: "project_manager,site_manager", message: "Critical finding needs action within 24 h: {body}" } },
+        { type: "set_finding_due", params: { days: "1" } }, { type: "create_inspection", params: { templateId: "", dueDays: "2" } }],
+      createdBy: userByRole.org_admin, createdAt: iso(today - 20 * DAY), updatedAt: iso(today - 20 * DAY), runCount: 0 });
+    ds.automationRules.push({ id: sid(`rule:${spec.key}:1`), organizationId: orgId, name: "Aborted flight follow-up", enabled: true, trigger: "mission.aborted",
+      conditions: [], actions: [{ type: "notify_roles", params: { roles: "project_manager,site_manager", message: "Flight aborted — re-plan the capture: {body}" } }],
+      createdBy: userByRole.project_manager, createdAt: iso(today - 20 * DAY), updatedAt: iso(today - 20 * DAY), runCount: 0 });
+    {
+      const s0 = ds.sites.find((x) => x.organizationId === orgId && x.noFlyZones.length === 0 && ds.missions.some((m) => m.siteId === x.id && m.status === "completed"))!;
+      const p0 = ds.projects.find((p) => p.id === s0.projectId)!;
+      const tplMission = ds.missions.find((m) => m.siteId === s0.id && m.status === "completed")!;
+      const next = new Date(today + ((4 - new Date(today).getUTCDay() + 7) % 7 || 7) * DAY + 6 * 3_600_000).toISOString();
+      ds.captureSchedules.push({ id: sid(`sched:${spec.key}:0`), organizationId: orgId, projectId: p0.id, siteId: s0.id, name: `Weekly progress capture — ${s0.name}`,
+        templateMissionId: tplMission.id, cadence: "weekly", weekday: 4, timeLocal: "10:00", droneId: droneIds[3], pilotId,
+        autoAnalyze: true, weatherGate: true, enabled: true, nextRunAt: next, createdBy: userByRole.project_manager, createdAt: iso(today - 60 * DAY) });
+    }
 
     // Notifications for every member
     for (const role of ROLES) {

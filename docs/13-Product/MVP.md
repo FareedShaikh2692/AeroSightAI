@@ -18,6 +18,7 @@
 | 0.1 | 2026-10-06 | Product | Initial MVP definition and implementation status register |
 | 0.2 | 2026-10-06 | Engineering | Status register updated for the Phase 1 demo build |
 | 0.3 | 2026-10-06 | Engineering | Phase 2 capabilities added to the demo build |
+| 0.5 | 2026-10-06 | Engineering | Phase 4 capabilities added: predictive insights, capture schedules + weather, BIM 4D/5D, drone ecosystem, automations |
 | 0.4 | 2026-10-06 | Engineering | Phase 3 capabilities added: mission control, Cesium digital twin, OIDC SSO + SCIM, edge telemetry ingest, analytics v2, Procore/ACC connectors, SIEM export |
 
 ---
@@ -125,6 +126,11 @@ Legend: see [README §2.1](../README.md#21-implementation-status-legend).
 | Break-glass support access | 2 | Implemented | Prototype — read-only, time-boxed, audited, Owner notified | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Advanced mapping (3D terrain, elevation profile, volumes) | 2 | Implemented | Prototype — real public DEM (~30 m); survey DSM needs processing | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Multi-region data residency | 3 | Implemented | Planned — infrastructure (per-region stacks, region-pinned storage; see docs/04-Architecture/Deployment-Architecture.md). The demo runs in one Vercel region; `organization.region` is recorded only | 2026-10-06 | — |
+| Predictive analytics (delay forecast, risk scoring) | 4 | Implemented | Prototype — Earned Schedule forecast (data-date SPI(t), P10/P50/P90, on-time probability) + explainable 0–100 risk score; daily risk alerts. Statistical, not trained ML | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Automated site intelligence (scheduled captures + analysis) | 4 | Implemented | Prototype — recurring capture schedules (timezone/DST aware) generate missions via cron, Open-Meteo weather go/no-go, auto AI analysis on completion. Dock auto-launch Integration Required | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Advanced BIM (4D/5D, BIM-vs-as-built) | 4 | Implemented | Prototype — milestone-linked elements, 4D plan-vs-built in the 3D twin, EVM (SPI/CPI/EAC/VAC/TCPI), deviation checks → findings. IFC & ERP import Integration Required; seeded elements/costs/as-built are synthetic | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Multi-provider drone ecosystem | 4 | Implemented | Prototype — adapter registry + capability matrix (Simulator, Manual, MAVLink β, DJI, Skydio, Parrot, Autel), per-org enablement; vendor adapters Integration Required | 2026-10-06 | Demo build (`src/`), `npm test` |
+| Enterprise automation (workflow builder, rules engine) | 4 | Implemented | Prototype — 11 triggers, conditions, 7 actions, run-as-creator permissions, loop prevention, throttling, run log | 2026-10-06 | Demo build (`src/`), `npm test` |
 | Platform admin | 1 | Implemented | Prototype — tenant metadata overview | 2026-10-06 | Demo build (`src/`), `npm test` |
 
 "Evidence" links to the PR, test report or release where the status changed.

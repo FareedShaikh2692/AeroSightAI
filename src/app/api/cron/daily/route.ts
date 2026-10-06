@@ -1,11 +1,14 @@
 // Daily maintenance (Vercel Cron): overdue-finding reminders (INSPECTION-014), retention enforcement (PRIV-002),
-// digest roll-up (NOTIF-007). Authenticated with CRON_SECRET (Vercel sends `Authorization: Bearer <CRON_SECRET>`).
+// digest roll-up (NOTIF-007), capture schedules and risk alerts (Phase 4). Authenticated with CRON_SECRET (Vercel sends `Authorization: Bearer <CRON_SECRET>`).
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { db, store, appendAudit } from "@/lib/store";
 import { emit } from "@/lib/events";
 import { enforceRetention } from "@/lib/privacy";
 import { newId } from "@/lib/ids";
+import { runDueSchedules } from "@/lib/schedules";
+import { riskTransitions } from "@/lib/insights";
+import { membersWithRoles } from "@/lib/events";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +38,15 @@ export async function GET(req: Request) {
     }
     // Digest: mark low-priority notifications as delivered in today's digest (email delivery requires a provider).
     const digested = db().notifications.filter((n) => n.organizationId === org.id && n.digest && !n.readAt);
-    report[org.slug] = { overdueFindings: overdue.length, purged, digestItems: digested.length };
+    // Predictive risk: alert when a project's risk band rises to high/critical.
+    const risks = riskTransitions(org.id);
+    for (const r of risks) {
+      const p = db().projects.find((x) => x.id === r.projectId)!;
+      emit({ key: "risk.high", orgId: org.id, projectId: p.id, entityType: "project", entityId: p.id, severity: r.band === "critical" ? "critical" : "warning", href: "/app/insights",
+        title: `Project risk ${r.band}`, body: `${p.name}: risk score ${r.score}/100`, recipients: membersWithRoles(org.id, p.id, ["project_manager"], true), data: { "risk.score": r.score, "risk.band": r.band } });
+    }
+    report[org.slug] = { overdueFindings: overdue.length, purged, digestItems: digested.length, riskAlerts: risks.length };
   }
-  return NextResponse.json({ ranAt: new Date().toISOString(), organizations: report });
+  const schedules = await runDueSchedules();
+  return NextResponse.json({ ranAt: new Date().toISOString(), organizations: report, schedules });
 }

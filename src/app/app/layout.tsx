@@ -12,13 +12,17 @@ import { Bell, LogOut } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 const NAV: { group: string; items: { href: string; label: string; icon: string; perm?: Permission }[] }[] = [
-  { group: "Overview", items: [{ href: "/app/dashboard", label: "Dashboard", icon: "LayoutDashboard" }, { href: "/app/analytics", label: "Analytics", icon: "BarChart3", perm: "analytics:read" }] },
+  { group: "Overview", items: [{ href: "/app/dashboard", label: "Dashboard", icon: "LayoutDashboard" }, { href: "/app/analytics", label: "Analytics", icon: "BarChart3", perm: "analytics:read" },
+    { href: "/app/insights", label: "Predictive Insights", icon: "Gauge", perm: "analytics:read" }] },
   { group: "Work", items: [
     { href: "/app/projects", label: "Projects", icon: "FolderKanban" }, { href: "/app/sites", label: "Sites", icon: "MapPin" },
-    { href: "/app/maps", label: "Maps", icon: "Layers", perm: "map:read" }, { href: "/app/twin", label: "3D Twin", icon: "Box", perm: "twin:read" }] },
+    { href: "/app/maps", label: "Maps", icon: "Layers", perm: "map:read" }, { href: "/app/twin", label: "3D Twin", icon: "Box", perm: "twin:read" },
+    { href: "/app/bim", label: "BIM 4D/5D", icon: "Building2", perm: "progress:read" }] },
   { group: "Operations", items: [
     { href: "/app/live", label: "Live Operations", icon: "Radio", perm: "telemetry:read" }, { href: "/app/missions", label: "Missions", icon: "CalendarClock", perm: "mission:read" },
-    { href: "/app/fleet", label: "Drone Fleet", icon: "Drone", perm: "drone:read" }] },
+    { href: "/app/schedules", label: "Capture Schedules", icon: "Repeat", perm: "mission:read" },
+    { href: "/app/fleet", label: "Drone Fleet", icon: "Drone", perm: "drone:read" },
+    { href: "/app/ecosystem", label: "Drone Ecosystem", icon: "Blocks", perm: "drone:read" }] },
   { group: "Data", items: [
     { href: "/app/media", label: "Media", icon: "Images", perm: "media:read" }, { href: "/app/surveys", label: "Surveys", icon: "Mountain", perm: "map:read" },
     { href: "/app/inspections", label: "Inspections", icon: "ClipboardList", perm: "inspection:read" }, { href: "/app/progress", label: "Progress", icon: "TrendingUp", perm: "progress:read" },
@@ -27,7 +31,8 @@ const NAV: { group: string; items: { href: string; label: string; icon: string; 
     { href: "/app/ai", label: "AI Insights", icon: "Sparkles", perm: "ai:analyze" }, { href: "/app/assistant", label: "Assistant", icon: "MessageSquare", perm: "ai:assistant" }] },
   { group: "Organization", items: [
     { href: "/app/team", label: "Team", icon: "Users", perm: "org:read" }, { href: "/app/roles", label: "Roles", icon: "KeyRound", perm: "org:read" },
-    { href: "/app/integrations", label: "Integrations", icon: "Plug", perm: "integration:manage" }, { href: "/app/billing", label: "Billing", icon: "CreditCard", perm: "billing:manage" },
+    { href: "/app/integrations", label: "Integrations", icon: "Plug", perm: "integration:manage" },
+    { href: "/app/automations", label: "Automations", icon: "Workflow", perm: "integration:manage" }, { href: "/app/billing", label: "Billing", icon: "CreditCard", perm: "billing:manage" },
     { href: "/app/audit", label: "Audit Logs", icon: "ScrollText", perm: "audit:read" }, { href: "/app/settings", label: "Settings", icon: "Settings" }] },
 ];
 

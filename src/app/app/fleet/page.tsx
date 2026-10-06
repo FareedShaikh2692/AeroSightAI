@@ -7,6 +7,8 @@ import { RegisterDrone } from "./RegisterDrone";
 import { fmtDate } from "@/lib/format";
 import { Drone } from "lucide-react";
 import { listEdgeDevices } from "@/lib/edge";
+import { ADAPTERS, adapter } from "@/lib/adapters";
+import { db } from "@/lib/store";
 import { CreateEdgeDevice } from "./EdgeDevices";
 import { revokeEdgeDeviceAction } from "./actions";
 
@@ -35,7 +37,7 @@ export default async function Fleet() {
               <dt className="text-ink-3">Registration</dt><dd className="font-mono">{d.registrationNumber}</dd>
               <dt className="text-ink-3">Expires</dt><dd className={soon(d.registrationExpiresAt) ? "text-warn" : ""}>{fmtDate(d.registrationExpiresAt)}</dd>
               <dt className="text-ink-3">Flight hours</dt><dd className="font-mono">{(d.totalFlightSeconds / 3600).toFixed(1)} h · {d.totalFlights}</dd>
-              <dt className="text-ink-3">Provider</dt><dd>{d.providerKey === "manual" ? "Manual / upload" : d.providerKey}</dd>
+              <dt className="text-ink-3">Provider</dt><dd>{adapter(d.providerKey)?.name ?? d.providerKey}</dd>
               <dt className="text-ink-3">Commands</dt><dd>{d.missionControlVerified ? <span className="text-ok">pause · resume · RTH</span> : <span className="text-ink-3">record only</span>}</dd>
             </dl>
             {can(ctx, "drone:update") && d.status !== "in_mission" && d.status !== "retired" && (
@@ -54,7 +56,7 @@ export default async function Fleet() {
               <td>{Date.parse(p.licenseExpiresAt) < Date.now() ? <Badge tone="bad">expired</Badge> : soon(p.licenseExpiresAt) ? <Badge tone="warn">{fmtDate(p.licenseExpiresAt)}</Badge> : fmtDate(p.licenseExpiresAt)}</td></tr>)}
           </tbody></table>
         </Card>
-        {can(ctx, "drone:register") && <Card title="Register drone"><RegisterDrone /></Card>}
+        {can(ctx, "drone:register") && <Card title="Register drone"><RegisterDrone providers={ADAPTERS.filter((a) => a.builtIn || db().orgAdapters.some((o) => o.organizationId === ctx.orgId && o.adapterKey === a.key)).map((a) => ({ key: a.key, name: a.name }))} /></Card>}
       </div>
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <Card title="Edge devices (live telemetry bridge)" pad={false}>

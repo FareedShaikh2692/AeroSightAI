@@ -19,6 +19,8 @@ export interface TwinData {
   planned?: { code: string; points: [number, number, number][] }; flown?: { code: string; points: [number, number, number][] };
   live?: { missionId: string; code: string; drone: string };
   timeline: { date: string; pct: number }[];
+  /** 4D: BIM elements with a status code per timeline step (n not started, o on track, a ahead, b behind, c complete). */
+  bim?: { id: string; name: string; ifcClass: string; milestone: string; baseZ: number; topZ: number; footprint: LngLat[]; codes: string }[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,8 +69,11 @@ const SEV_COLOR: Record<string, string> = { critical: "#EF4444", high: "#F97316"
 
 interface Selected { kind: string; title: string; rows: [string, string][] }
 
-export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallback }: {
-  data: TwinData; viewpoints: { id: string; name: string; camera: Camera; mine: boolean }[]; height?: number;
+const CODE_COLOR: Record<string, [string, number]> = { o: ["#22C55E", 0.85], a: ["#38BDF8", 0.85], c: ["#94A3B8", 0.8], b: ["#EF4444", 0.35] };
+const CODE_LABEL: Record<string, string> = { n: "not started", o: "on track", a: "ahead of plan", b: "behind plan (planned, not built)", c: "complete" };
+
+export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallback, initial4d }: {
+  data: TwinData; viewpoints: { id: string; name: string; camera: Camera; mine: boolean }[]; height?: number; initial4d?: boolean;
   onSaveViewpoint?: (name: string, camera: Camera, shared: boolean) => Promise<{ error?: string } | void>; fallback: ReactNode;
 }) {
   const el = useRef<HTMLDivElement>(null);
@@ -77,7 +82,7 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(Math.max(0, data.timeline.length - 1));
   const stepRef = useRef(step);
-  const [layers, setLayers] = useState({ assets: true, cloud: true, planned: true, flown: true, findings: true, live: true });
+  const [layers, setLayers] = useState({ assets: !initial4d, bim: !!initial4d, cloud: !initial4d, planned: true, flown: true, findings: true, live: true });
   const [measuring, setMeasuring] = useState(false);
   const measuringRef = useRef(false);
   const [measure, setMeasure] = useState<{ d: number; h: number; dz: number } | null>(null);
@@ -119,7 +124,7 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
       viewer.scene.globe.depthTestAgainstTerrain = true;
       viewer.scene.skyAtmosphere.show = true;
       viewer.scene.backgroundColor = C.Color.fromCssColorString("#0B0F14");
-      const g: Record<string, Any[]> = { assets: [], planned: [], flown: [], findings: [], live: [], boundary: [] };
+      const g: Record<string, Any[]> = { assets: [], bim: [], planned: [], flown: [], findings: [], live: [], boundary: [] };
       const info = new Map<Any, Selected>();
       const col = (css: string, a = 1) => C.Color.fromCssColorString(css).withAlpha(a);
 
@@ -143,6 +148,19 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
         info.set(e, { kind: "Asset", title: a.name, rows: [["Tag", a.tag], ["Type", a.type], ["Design height", `${a.heightM} m`], ["Condition", `${a.conditionRating}/5`], ["Status", a.status]] });
         g.assets.push(e);
       });
+
+      // 4D: BIM elements coloured by planned-vs-as-built status at the slider date.
+      for (const b of data.bim ?? []) {
+        const code = () => b.codes[stepRef.current] ?? "n";
+        const e = viewer.entities.add({ polygon: {
+          hierarchy: C.Cartesian3.fromDegreesArray(b.footprint.flat()), height: b.baseZ, extrudedHeight: Math.max(b.topZ, b.baseZ + 0.2),
+          show: new C.CallbackProperty(() => code() !== "n", false),
+          material: new C.ColorMaterialProperty(new C.CallbackProperty(() => { const [c, a] = CODE_COLOR[code()] ?? ["#94A3B8", 0.5]; return col(c, a); }, false)),
+          outline: true, outlineColor: col("#0B0F14", 0.6) } });
+        info.set(e, { kind: "BIM element (4D)", title: b.name, rows: [["Class", b.ifcClass], ["Milestone", b.milestone], ["Elevation", `${b.baseZ.toFixed(1)} → ${b.topZ.toFixed(1)} m`]] });
+        (e as Any)._bimCode = code;
+        g.bim.push(e);
+      }
 
       // Synthetic point cloud: ground returns inside the boundary + returns on asset surfaces (shown up to built height).
       const coll = viewer.scene.primitives.add(new C.PointPrimitiveCollection());
@@ -231,7 +249,8 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
         const picked = viewer.scene.pick(click.position);
         const ent = picked?.id;
         const sel = ent ? info.get(ent) : undefined;
-        if (sel) setSelected(sel);
+        if (sel && ent?._bimCode) setSelected({ ...sel, rows: [...sel.rows, ["Status", CODE_LABEL[ent._bimCode()] ?? "—"]] });
+        else if (sel) setSelected(sel);
         else if (picked?.primitive && picked.collection === coll) {
           const c = C.Cartographic.fromCartesian(picked.primitive.position);
           setSelected({ kind: "Point (synthetic cloud)", title: "Point sample", rows: [["Longitude", C.Math.toDegrees(c.longitude).toFixed(6)], ["Latitude", C.Math.toDegrees(c.latitude).toFixed(6)], ["Height", `${c.height.toFixed(1)} m`]] });
@@ -289,7 +308,7 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
     );
   }
 
-  const LAYER_LABELS: [keyof typeof layers, string][] = [["assets", "Asset models"], ["cloud", "Point cloud (synthetic)"], ["planned", "Planned path"], ["flown", "Flown path"], ["findings", "Findings"], ["live", "Live drone"]];
+  const LAYER_LABELS: [keyof typeof layers, string][] = [["bim", "BIM 4D (plan vs as-built)"], ["assets", "Asset models"], ["cloud", "Point cloud (synthetic)"], ["planned", "Planned path"], ["flown", "Flown path"], ["findings", "Findings"], ["live", "Live drone"]];
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_300px]">
       <div className="space-y-3">
@@ -331,11 +350,14 @@ export function Twin3D({ data, viewpoints, height = 620, onSaveViewpoint, fallba
         <div className="card p-4">
           <div className="mb-2 text-sm font-semibold">Layers</div>
           <ul className="space-y-1">
-            {LAYER_LABELS.filter(([k]) => k !== "live" || data.live).filter(([k]) => k !== "flown" || data.flown).filter(([k]) => k !== "planned" || data.planned).map(([k, label]) => (
+            {LAYER_LABELS.filter(([k]) => k !== "bim" || data.bim?.length).filter(([k]) => k !== "live" || data.live).filter(([k]) => k !== "flown" || data.flown).filter(([k]) => k !== "planned" || data.planned).map(([k, label]) => (
               <li key={k}><button type="button" className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-sm hover:bg-raised" onClick={() => setLayers((l) => ({ ...l, [k]: !l[k] }))} aria-pressed={layers[k]}>
                 <span className={layers[k] ? "" : "text-ink-3"}>{label}</span>{layers[k] ? <Eye size={14} /> : <EyeOff size={14} className="text-ink-3" />}</button></li>
             ))}
           </ul>
+          {layers.bim && !!data.bim?.length && (
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">{(["o", "a", "b", "c"] as const).map((k) => <span key={k} className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: CODE_COLOR[k][0], opacity: CODE_COLOR[k][1] }} />{CODE_LABEL[k]}</span>)}</div>
+          )}
           <p className="mt-2 text-[11px] text-ink-3">Asset models are procedural (footprint × height). The point cloud is synthetic demo data — photogrammetry meshes and LAS/LAZ clouds stream once processing is connected.</p>
         </div>
         <div className="card p-4">

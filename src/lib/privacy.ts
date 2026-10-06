@@ -85,6 +85,8 @@ export function organizationExport(orgId: UUID) {
     viewpoints: own(d.viewpoints), edgeDevices: own(d.edgeDevices).map(({ tokenHash: _h, ...e }) => e),
     ssoConfig: d.ssoConfigs.filter((c) => c.organizationId === orgId).map(({ clientSecretEnc: _c, ...c }) => c),
     scimTokens: own(d.scimTokens).map(({ tokenHash: _h, ...t }) => t),
+    automationRules: own(d.automationRules), automationRuns: own(d.automationRuns), captureSchedules: own(d.captureSchedules),
+    bimElements: own(d.bimElements), costEntries: own(d.costEntries), asBuilt: own(d.asBuilt), orgAdapters: own(d.orgAdapters),
     auditLogs: own(d.auditLogs),
   };
 }

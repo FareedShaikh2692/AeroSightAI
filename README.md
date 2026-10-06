@@ -57,6 +57,7 @@ Each has one user per role (Owner, Admin, Project Manager, Site Manager, Drone P
 4. Plan a mission (**Missions → New mission**) and watch the server reject waypoints in the crane no-fly zone or above the altitude limit.
 5. Sign in as the Atlas **Inspector** → approve your own inspection (refused), then as the **Engineer** → approve it.
 6. Sign in as the Atlas **Viewer** → only shared media and published reports are visible.
+9. **Phase 4:** *Predictive Insights* (delay forecast + risk); *BIM 4D/5D* → *View in 3D twin*; *Capture Schedules* → *Generate next flight now* (live weather); as **Admin** → *Automations* (add a critical finding on an inspection and watch the rule run); *Drone Ecosystem*.
 8. **Phase 3:** 3D Twin → drag the *Construction history* slider, click objects, *Measure 3D*, save a viewpoint; as the **Drone Pilot** open the live mission → *Pause (hover)* / *Return to home*; Analytics → 12 months → CSV exports; Settings → *Single sign-on* (OIDC + SCIM); Fleet → *Edge devices*; Integrations → *Construction platforms & SIEM*.
 7. **Phase 2:** AI Insights → *Analyze progress* → accept/edit/reject proposals; Settings → set up 2FA; Integrations → API keys / webhooks / Slack; Maps → *3D terrain* → *Profile* / *Volume*; Inspections → *Templates* / *Schedule inspection*; Admin console → *Break-glass access*.
 
@@ -85,7 +86,12 @@ src/
 │   ├── simulator.ts     Drone Simulator adapter (deterministic telemetry + alerts, honours pause/RTH)
 │   ├── edge.ts          Edge-bridge telemetry ingestion (device tokens, validation)
 │   ├── sso.ts / scim.ts OpenID Connect SSO and SCIM 2.0 provisioning
-│   └── analytics.ts     Benchmarking, SLA/MTTR, utilization, CSV
+│   ├── analytics.ts     Benchmarking, SLA/MTTR, utilization, CSV
+│   ├── predict.ts       Earned Schedule delay forecast + risk score
+│   ├── automation.ts    Workflow rules engine
+│   ├── schedules.ts / weather.ts  Capture schedules, weather go/no-go
+│   ├── bim.ts           4D status, earned value, as-built deviation
+│   └── adapters.ts      Drone adapter registry
 └── middleware.ts        Gates /app and /admin
 scripts/edge-bridge.mjs  Reference edge bridge (stdin JSON lines or replay) → ingest API
 tests/                   node:test suites (run with tsx)
@@ -131,6 +137,11 @@ The full register lives in [docs/13-Product/MVP.md §4](docs/13-Product/MVP.md#4
 | **Phase 3:** Edge-bridge telemetry ingestion for real drones (`scripts/edge-bridge.mjs`) | Prototype |
 | **Phase 3:** Analytics v2 (benchmarking, SLA, MTTR, utilization, CSV) and SIEM JSONL audit export | Prototype |
 | **Phase 3:** Procore / Autodesk Construction Cloud connectors | Integration Required (OAuth connect + test built; sync Planned) |
+| **Phase 4:** Predictive insights (Earned Schedule delay forecast, risk scoring) | Prototype — statistical, not trained ML |
+| **Phase 4:** Capture schedules, weather go/no-go (Open-Meteo), automatic analysis | Prototype — dock auto-launch Integration Required |
+| **Phase 4:** BIM 4D/5D (schedule/cost-linked elements, EVM, as-built deviation) | Prototype — IFC/ERP import Integration Required; synthetic model data |
+| **Phase 4:** Drone ecosystem (adapter registry, capability matrix) | Prototype — vendor adapters Integration Required |
+| **Phase 4:** Workflow automations (rules engine) | Prototype |
 | Multi-region data residency | Planned (infrastructure) |
 | AI change/defect detection from imagery, media upload, billing | Planned / Integration Required |
 

@@ -4,12 +4,12 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import {
   LayoutDashboard, BarChart3, FolderKanban, MapPin, Layers, Box, Radio, CalendarClock, Drone, Images, Mountain,
-  ClipboardList, TrendingUp, FileText, Users, KeyRound, Plug, CreditCard, ScrollText, Settings, Sparkles, MessageSquare, type LucideIcon,
+  ClipboardList, TrendingUp, FileText, Users, KeyRound, Plug, CreditCard, ScrollText, Settings, Sparkles, MessageSquare, Gauge, Building2, Repeat, Blocks, Workflow, type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, BarChart3, FolderKanban, MapPin, Layers, Box, Radio, CalendarClock, Drone, Images, Mountain,
-  ClipboardList, TrendingUp, FileText, Users, KeyRound, Plug, CreditCard, ScrollText, Settings, Sparkles, MessageSquare,
+  ClipboardList, TrendingUp, FileText, Users, KeyRound, Plug, CreditCard, ScrollText, Settings, Sparkles, MessageSquare, Gauge, Building2, Repeat, Blocks, Workflow,
 };
 
 export function SideNav({ nav }: { nav: { group: string; items: { href: string; label: string; icon: string }[] }[] }) {
